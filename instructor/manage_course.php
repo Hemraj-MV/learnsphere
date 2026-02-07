@@ -1,7 +1,7 @@
 <?php
 // -------------------------------------------------------------------
 // instructor/manage_course.php
-// Full Version - Studio / Course Editor
+// Full Version - Course Studio
 // -------------------------------------------------------------------
 
 require '../includes/db.php';
@@ -11,7 +11,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // -------------------------------------------------------------------
-// 1. AUTHENTICATION & ACCESS CONTROL
+// 1. AUTHENTICATION & INITIALIZATION
 // -------------------------------------------------------------------
 if (!isset($_SESSION['user_id']) || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'instructor')) {
     header("Location: ../login.php");
@@ -22,13 +22,7 @@ $current_user_id = $_SESSION['user_id'];
 $instructor_name = $_SESSION['name'] ?? 'Instructor';
 $course_id = $_GET['id'] ?? null;
 
-// -------------------------------------------------------------------
-// 2. HELPER FUNCTIONS
-// -------------------------------------------------------------------
-
-/**
- * Recalculates the total duration of the course based on lessons.
- */
+// --- HELPER: Recalculate Total Course Duration ---
 function recalculateCourseDuration($pdo, $c_id) {
     $stmt = $pdo->prepare("SELECT duration FROM lessons WHERE course_id = ?");
     $stmt->execute([$c_id]);
@@ -37,7 +31,6 @@ function recalculateCourseDuration($pdo, $c_id) {
     $total_minutes = 0;
     foreach ($durations as $d) {
         if (empty($d)) continue;
-        // Expecting format HH:MM
         $parts = explode(':', $d);
         if (count($parts) === 2) {
             $total_minutes += (intval($parts[0]) * 60) + intval($parts[1]);
@@ -46,23 +39,21 @@ function recalculateCourseDuration($pdo, $c_id) {
     
     $hours = floor($total_minutes / 60);
     $minutes = $total_minutes % 60;
-    // Format as 00:00
+    // Format HH:MM
     $final_duration = sprintf("%02d:%02d", $hours, $minutes);
     
     $pdo->prepare("UPDATE courses SET duration = ? WHERE id = ?")->execute([$final_duration, $c_id]);
 }
 
-// Fetch list of instructors for the "Responsible" dropdown in Options
+// Fetch Instructors for Dropdown
 $instructors = $pdo->query("SELECT id, name FROM users WHERE role IN ('instructor', 'admin')")->fetchAll(PDO::FETCH_ASSOC);
 
 // -------------------------------------------------------------------
-// 3. HANDLE POST REQUESTS
+// 2. HANDLE FORM SUBMISSIONS
 // -------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    // ======================================================
-    // A. SAVE COURSE DETAILS (General, Description, Options)
-    // ======================================================
+    // --- A. SAVE COURSE DETAILS (General, Description, Options) ---
     if (isset($_POST['save_details'])) {
         $title = trim($_POST['title']);
         $tags = trim($_POST['tags']);
@@ -75,20 +66,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $access_rule = $_POST['access_rule'] ?? 'open';
         $new_instructor_id = $_POST['instructor_id'] ?? $current_user_id;
         
-        // Used to determine which tab to show after reload
         $redirect_tab = $_POST['redirect_tab'] ?? 'content';
         
         // Handle Course Image Upload
         $image_path = $_POST['current_image'] ?? null;
-        
         if (isset($_FILES['course_image']) && $_FILES['course_image']['error'] === UPLOAD_ERR_OK) {
             $ext = pathinfo($_FILES['course_image']['name'], PATHINFO_EXTENSION);
             $new_name = "course_" . time() . "." . $ext;
-            
-            // Create directory if not exists
-            if (!is_dir('../uploads/courses/')) {
-                mkdir('../uploads/courses/', 0777, true);
-            }
+            if (!is_dir('../uploads/courses/')) mkdir('../uploads/courses/', 0777, true);
             
             if (move_uploaded_file($_FILES['course_image']['tmp_name'], "../uploads/courses/" . $new_name)) {
                 $image_path = "uploads/courses/" . $new_name;
@@ -96,241 +81,141 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($course_id) {
-            // Update Existing Course
-            $sql = "UPDATE courses SET 
-                        title=?, 
-                        tags=?, 
-                        description=?, 
-                        is_published=?, 
-                        image=?, 
-                        price=?, 
-                        visibility=?, 
-                        access_rule=?, 
-                        instructor_id=? 
-                    WHERE id=?";
+            // Update Existing
+            $sql = "UPDATE courses SET title=?, tags=?, description=?, is_published=?, image=?, price=?, visibility=?, access_rule=?, instructor_id=? WHERE id=?";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([
-                $title, 
-                $tags, 
-                $description, 
-                $is_published, 
-                $image_path, 
-                $price, 
-                $visibility, 
-                $access_rule, 
-                $new_instructor_id, 
-                $course_id
-            ]);
+            $stmt->execute([$title, $tags, $description, $is_published, $image_path, $price, $visibility, $access_rule, $new_instructor_id, $course_id]);
         } else {
-            // Insert New Course
+            // Create New
             if (!empty($title)) {
-                $sql = "INSERT INTO courses (
-                            title, instructor_id, tags, description, is_published, image, duration, views, price, visibility, access_rule
-                        ) VALUES (?, ?, ?, ?, ?, ?, '00:00', 0, ?, ?, ?)";
+                $sql = "INSERT INTO courses (title, instructor_id, tags, description, is_published, image, duration, views, price, visibility, access_rule) VALUES (?, ?, ?, ?, ?, ?, '00:00', 0, ?, ?, ?)";
                 $stmt = $pdo->prepare($sql);
-                $stmt->execute([
-                    $title, 
-                    $new_instructor_id, 
-                    $tags, 
-                    $description, 
-                    $is_published, 
-                    $image_path, 
-                    $price, 
-                    $visibility, 
-                    $access_rule
-                ]);
-                
+                $stmt->execute([$title, $new_instructor_id, $tags, $description, $is_published, $image_path, $price, $visibility, $access_rule]);
                 $new_id = $pdo->lastInsertId();
                 header("Location: manage_course.php?id=" . $new_id . "&success=1");
                 exit;
             }
         }
         
-        // Redirect back to the active tab
         header("Location: manage_course.php?id=" . $course_id . "&tab=" . $redirect_tab . "&success=1");
         exit;
     }
 
-    // ======================================================
-    // B. MANAGE LESSON (Add/Edit Content, Quiz, Files)
-    // ======================================================
+    // --- B. MANAGE LESSON (Add/Edit Content - Video/Doc/Image) ---
     if (isset($_POST['manage_lesson'])) {
         $l_id = $_POST['lesson_id'] ?? null;
         $l_title = trim($_POST['lesson_title']);
         $l_desc = $_POST['lesson_description'] ?? '';
-        $l_type = $_POST['lesson_type']; // video, document, image, quiz
+        $l_type = $_POST['lesson_type'];
         $l_responsible = $_POST['responsible'] ?? $instructor_name;
         $l_duration = $_POST['duration'] ?? '00:00';
         $allow_download = isset($_POST['allow_download']) ? 1 : 0;
         
-        // 1. Content URL (Video Link)
+        // 1. Content URL
         $content_url = $_POST['video_link'] ?? ''; 
         if ($l_id) {
             $existing_url = $_POST['current_content_url'] ?? '';
-            // Only use existing if no new link provided
-            if(!empty($existing_url) && empty($content_url)) {
-                $content_url = $existing_url;
-            }
+            if(!empty($existing_url) && empty($content_url)) $content_url = $existing_url;
         }
 
-        // 2. Additional Attachment Link
+        // 2. Attachment Link
         $attachment_link = $_POST['attachment_link'] ?? '';
 
-        // 3. File Upload (Main Content: Video/PDF/Image)
+        // 3. File Upload (Main Content)
         $file_input = ($l_type === 'video') ? 'video_file' : 'lesson_file';
-        
         if (isset($_FILES[$file_input]) && $_FILES[$file_input]['error'] === UPLOAD_ERR_OK) {
             $ext = pathinfo($_FILES[$file_input]['name'], PATHINFO_EXTENSION);
             $new_name = "lesson_" . time() . "_" . uniqid() . "." . $ext;
-            
             if (!is_dir('../uploads/lessons/')) mkdir('../uploads/lessons/', 0777, true);
-            
             if (move_uploaded_file($_FILES[$file_input]['tmp_name'], "../uploads/lessons/" . $new_name)) {
                 $content_url = "uploads/lessons/" . $new_name;
             }
         } elseif ($l_id && empty($content_url)) {
-            // Keep existing if no new upload and no new link
             $content_url = $_POST['current_content_url'] ?? '';
         }
 
-        // 4. File Upload (Additional Attachment)
-        // If a file is uploaded, it overrides the 'Link' input for attachment_url
+        // 4. File Upload (Attachment)
         if (isset($_FILES['attachment_file']) && $_FILES['attachment_file']['error'] === UPLOAD_ERR_OK) {
             $ext = pathinfo($_FILES['attachment_file']['name'], PATHINFO_EXTENSION);
             $new_name = "attach_" . time() . "_" . uniqid() . "." . $ext;
-            
             if (!is_dir('../uploads/attachments/')) mkdir('../uploads/attachments/', 0777, true);
-            
             if(move_uploaded_file($_FILES['attachment_file']['tmp_name'], "../uploads/attachments/" . $new_name)) {
                 $attachment_link = "uploads/attachments/" . $new_name;
             }
         }
 
-        // --- Database Insert/Update ---
+        // DB Update
         if ($l_id) {
-            // Update Lesson
-            $sql = "UPDATE lessons SET 
-                        title=?, 
-                        description=?, 
-                        type=?, 
-                        content_url=?, 
-                        duration=?, 
-                        is_downloadable=?, 
-                        responsible=?, 
-                        attachment_url=? 
-                    WHERE id=? AND course_id=?";
+            $sql = "UPDATE lessons SET title=?, description=?, type=?, content_url=?, duration=?, is_downloadable=?, responsible=?, attachment_url=? WHERE id=? AND course_id=?";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([
-                $l_title, 
-                $l_desc, 
-                $l_type, 
-                $content_url, 
-                $l_duration, 
-                $allow_download, 
-                $l_responsible, 
-                $attachment_link, 
-                $l_id, 
-                $course_id
-            ]);
-            $current_lesson_id = $l_id;
+            $stmt->execute([$l_title, $l_desc, $l_type, $content_url, $l_duration, $allow_download, $l_responsible, $attachment_link, $l_id, $course_id]);
         } else {
-            // Insert New Lesson
             $stmt = $pdo->prepare("SELECT MAX(position) FROM lessons WHERE course_id = ?");
             $stmt->execute([$course_id]);
             $pos = $stmt->fetchColumn() + 1;
-            
-            $sql = "INSERT INTO lessons (
-                        course_id, title, description, type, content_url, duration, is_downloadable, responsible, position, attachment_url
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO lessons (course_id, title, description, type, content_url, duration, is_downloadable, responsible, position, attachment_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([
-                $course_id, 
-                $l_title, 
-                $l_desc, 
-                $l_type, 
-                $content_url, 
-                $l_duration, 
-                $allow_download, 
-                $l_responsible, 
-                $pos, 
-                $attachment_link
-            ]);
-            $current_lesson_id = $pdo->lastInsertId();
+            $stmt->execute([$course_id, $l_title, $l_desc, $l_type, $content_url, $l_duration, $allow_download, $l_responsible, $pos, $attachment_link]);
         }
 
-        // --- Quiz Synchronization Logic ---
-        // If type is quiz, ensure entry exists in 'quizzes' table
-        if ($l_type === 'quiz') {
-            $stmt = $pdo->prepare("SELECT id FROM quizzes WHERE lesson_id = ?");
-            $stmt->execute([$current_lesson_id]);
-            if (!$stmt->fetch()) {
-                // Create new quiz entry linked to this lesson
-                $pdo->prepare("INSERT INTO quizzes (course_id, lesson_id, title) VALUES (?, ?, ?)")
-                    ->execute([$course_id, $current_lesson_id, $l_title]);
-            } else {
-                // Update quiz title if lesson title changed
-                $pdo->prepare("UPDATE quizzes SET title = ? WHERE lesson_id = ?")
-                    ->execute([$l_title, $current_lesson_id]);
-            }
-        }
-
-        // Recalculate duration
         recalculateCourseDuration($pdo, $course_id);
-        
-        // Determine redirect tab based on type
-        $return_tab = ($l_type === 'quiz') ? 'quiz' : 'content';
-        
-        header("Location: manage_course.php?id=" . $course_id . "&tab=" . $return_tab);
+        header("Location: manage_course.php?id=" . $course_id . "&tab=content");
         exit;
     }
 
-    // ======================================================
-    // C. DELETE LESSON
-    // ======================================================
+    // --- C. CREATE QUIZ (New Flow) ---
+    if (isset($_POST['create_quiz'])) {
+        $q_title = trim($_POST['quiz_title']);
+        
+        // 1. Create Lesson Shell
+        $stmt = $pdo->prepare("SELECT MAX(position) FROM lessons WHERE course_id = ?");
+        $stmt->execute([$course_id]);
+        $pos = $stmt->fetchColumn() + 1;
+
+        $sql = "INSERT INTO lessons (course_id, title, type, duration, position) VALUES (?, ?, 'quiz', '00:00', ?)";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$course_id, $q_title, $pos]);
+        $new_lesson_id = $pdo->lastInsertId();
+
+        // 2. Create Quiz Entry
+        $sql = "INSERT INTO quizzes (course_id, lesson_id, title) VALUES (?, ?, ?)";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$course_id, $new_lesson_id, $q_title]);
+        $new_quiz_id = $pdo->lastInsertId();
+
+        // 3. Redirect to Quiz Editor
+        header("Location: quiz_editor.php?quiz_id=" . $new_quiz_id . "&course_id=" . $course_id);
+        exit;
+    }
+
+    // --- D. DELETE LESSON ---
     if (isset($_POST['delete_lesson'])) {
         $l_id = $_POST['lesson_id'];
-        
         $stmt = $pdo->prepare("DELETE FROM lessons WHERE id = ? AND course_id = ?");
         $stmt->execute([$l_id, $course_id]);
-        
         recalculateCourseDuration($pdo, $course_id);
-        
         header("Location: manage_course.php?id=" . $course_id . "&tab=" . $_GET['tab']);
         exit;
     }
 }
 
 // -------------------------------------------------------------------
-// 4. FETCH DATA FOR VIEW
+// 3. FETCH DATA
 // -------------------------------------------------------------------
 if ($course_id) {
     $stmt = $pdo->prepare("SELECT * FROM courses WHERE id = ?");
     $stmt->execute([$course_id]);
     $course = $stmt->fetch();
-    
-    if (!$course) { die("Access Denied or Course Not Found"); }
+    if (!$course) { die("Access Denied"); }
 
     $stmt = $pdo->prepare("SELECT * FROM lessons WHERE course_id = ? ORDER BY position ASC");
     $stmt->execute([$course_id]);
     $lessons = $stmt->fetchAll();
 } else {
-    // Default values for creating a new course
-    $course = [
-        'id' => null, 
-        'title' => '', 
-        'tags' => '', 
-        'description' => '', 
-        'is_published' => 0, 
-        'image' => '', 
-        'price' => 0.00, 
-        'visibility' => 'everyone', 
-        'access_rule' => 'open', 
-        'instructor_id' => $current_user_id
-    ];
+    $course = ['id' => null, 'title' => '', 'tags' => '', 'description' => '', 'is_published' => 0, 'image' => '', 'price' => 0.00, 'visibility' => 'everyone', 'access_rule' => 'open', 'instructor_id' => $current_user_id];
     $lessons = [];
 }
 
-// Determine active tab from URL or default to 'content'
 $active_tab_php = $_GET['tab'] ?? 'content';
 ?>
 
@@ -350,10 +235,8 @@ $active_tab_php = $_GET['tab'] ?? 'content';
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: linear-gradient(135deg, #f0f4ff 0%, #eef2f6 100%); color: #1e293b; min-height: 100vh; }
         h1, h2, h3, .heading-font { font-family: 'Outfit', sans-serif; letter-spacing: -0.02em; }
 
-        /* HEADER */
+        /* PREMIUM HEADER */
         .premium-header { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255, 255, 255, 0.5); box-shadow: 0 4px 20px -5px rgba(0, 0, 0, 0.05); }
-        
-        /* CARDS */
         .premium-card { background: #ffffff; border: 1px solid white; border-radius: 1.5rem; box-shadow: 0 10px 40px -10px rgba(0,0,0,0.08); transition: all 0.3s ease-out; }
         
         /* FORM INPUTS */
@@ -368,18 +251,17 @@ $active_tab_php = $_GET['tab'] ?? 'content';
         .btn-premium-dark { background: #0f172a; color: white; border: none; font-weight: 700; text-transform: uppercase; font-size: 11px; box-shadow: 0 4px 15px rgba(15, 23, 42, 0.2); }
         .btn-premium-dark:hover { background: #334155; transform: translateY(-1px); }
 
-        /* IMAGE UPLOAD */
+        /* UPLOAD */
         .image-placeholder { background: #f8fafc; border: 2px dashed #e2e8f0; border-radius: 1.25rem; transition: 0.3s; position: relative; overflow: hidden; background-size: cover; background-position: center; }
         .image-placeholder:hover { border-color: #6366f1; background-color: #f1f5f9; }
 
-        /* TYPOGRAPHY HELPERS */
+        /* OPTIONS LAYOUT */
         .option-section-title { font-size: 0.9rem; font-weight: 700; color: #334155; margin-bottom: 1rem; border-bottom: 2px solid #f1f5f9; padding-bottom: 0.5rem; display: block;}
         .help-text { font-size: 0.75rem; color: #94a3b8; margin-top: 0.25rem; display: block; }
         
-        /* MODAL STYLES */
+        /* MODAL */
         .modal-box-premium { background-color: white; border-radius: 1.5rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid white; overflow: hidden; display: flex; flex-direction: column; max-height: 85vh; }
         .modal-content-scroll { overflow-y: auto; padding: 2rem; flex: 1; }
-        
         .modal-tab { @apply px-5 py-3 text-xs font-bold uppercase tracking-wider border-b-2 border-transparent transition-colors; cursor: pointer; user-select: none; }
         .modal-tab.active { border-color: #6366f1; color: #6366f1; background: #eef2ff; }
         .modal-tab.inactive { color: #94a3b8; hover:text-slate-600; }
@@ -548,7 +430,7 @@ $active_tab_php = $_GET['tab'] ?? 'content';
                             </thead>
                             <tbody class="text-slate-600">
                                 <?php foreach($lessons as $lesson): ?>
-                                    <?php if($lesson['type'] == 'quiz') continue; // Hide quizzes in main list ?>
+                                    <?php if($lesson['type'] == 'quiz') continue; // Quizzes go to Quiz tab ?>
                                     <tr class="border-b border-slate-50 hover:bg-slate-50/50 transition">
                                         <td class="py-5 pl-6 font-bold text-slate-900 flex items-center gap-4">
                                             <i data-lucide="grip-vertical" class="w-4 h-4 text-slate-300 cursor-move"></i>
@@ -694,7 +576,7 @@ $active_tab_php = $_GET['tab'] ?? 'content';
                 <div id="view-quiz" class="<?= $active_tab_php == 'quiz' ? '' : 'hidden' ?>">
                     <div class="flex items-center justify-between mb-8">
                         <h3 class="heading-font font-bold text-xl">Quizzes</h3>
-                        <button onclick="openLessonModal('', '', 'quiz')" class="btn btn-sm btn-premium-dark rounded-xl px-6 gap-2">
+                        <button onclick="document.getElementById('addQuizModal').showModal()" class="btn btn-sm btn-premium-dark rounded-xl px-6 gap-2">
                             <i data-lucide="plus" class="w-4 h-4"></i> Add Quiz
                         </button>
                     </div>
@@ -703,8 +585,8 @@ $active_tab_php = $_GET['tab'] ?? 'content';
                             <thead class="bg-slate-50/50">
                                 <tr>
                                     <th class="py-4 pl-6">Quiz Title</th>
-                                    <th>Questions</th>
-                                    <th>Action</th>
+                                    <th>Category</th>
+                                    <th class="text-right pr-6">Action</th>
                                 </tr>
                             </thead>
                             <tbody class="text-slate-600">
@@ -713,26 +595,47 @@ $active_tab_php = $_GET['tab'] ?? 'content';
                                 foreach($lessons as $l): 
                                     if($l['type'] != 'quiz') continue; 
                                     $quiz_found = true;
+                                    
+                                    // Fetch the Quiz ID linked to this lesson
+                                    $stmt = $pdo->prepare("SELECT id FROM quizzes WHERE lesson_id = ?");
+                                    $stmt->execute([$l['id']]);
+                                    $q_data = $stmt->fetch();
+                                    $real_quiz_id = $q_data['id'] ?? null;
                                 ?>
                                     <tr class="border-b border-slate-50 hover:bg-slate-50/50 transition">
                                         <td class="py-5 pl-6 font-bold text-slate-900"><?= htmlspecialchars($l['title']) ?></td>
                                         <td>
-                                            <a href="manage_quiz.php?lesson_id=<?= $l['id'] ?>" class="btn btn-xs btn-outline">
-                                                Manage Questions
-                                            </a>
+                                            <span class="px-3 py-1 bg-slate-100 rounded-full text-xs font-bold uppercase tracking-tighter">
+                                                QUIZ
+                                            </span>
                                         </td>
-                                        <td>
-                                            <form method="POST" onsubmit="return confirm('Delete?');">
-                                                <input type="hidden" name="delete_lesson" value="1">
-                                                <input type="hidden" name="lesson_id" value="<?= $l['id'] ?>">
-                                                <button class="text-red-500 btn btn-xs btn-ghost">
-                                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                                </button>
-                                            </form>
+                                        <td class="text-right pr-6">
+                                            <div class="dropdown dropdown-end">
+                                                <label tabindex="0" class="btn btn-ghost btn-xs btn-circle">
+                                                    <i data-lucide="more-vertical" class="w-4 h-4"></i>
+                                                </label>
+                                                <ul tabindex="0" class="dropdown-content z-[50] menu p-2 shadow-xl bg-white rounded-xl w-32 border border-slate-100">
+                                                    <?php if($real_quiz_id): ?>
+                                                    <li>
+                                                        <a href="quiz_editor.php?quiz_id=<?= $real_quiz_id ?>&course_id=<?= $course_id ?>" target="_blank">
+                                                            <i data-lucide="edit-2" class="w-3 h-3"></i> Edit
+                                                        </a>
+                                                    </li>
+                                                    <?php endif; ?>
+                                                    <li>
+                                                        <form method="POST" onsubmit="return confirm('Delete this quiz?');">
+                                                            <input type="hidden" name="delete_lesson" value="1">
+                                                            <input type="hidden" name="lesson_id" value="<?= $l['id'] ?>">
+                                                            <button class="text-red-600 hover:bg-red-50 w-full text-left flex items-center gap-2">
+                                                                <i data-lucide="trash-2" class="w-3 h-3"></i> Delete
+                                                            </button>
+                                                        </form>
+                                                    </li>
+                                                </ul>
+                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
-                                
                                 <?php if(!$quiz_found): ?>
                                     <tr>
                                         <td colspan="3" class="text-center py-10 text-slate-400">No quizzes available. Add one above.</td>
@@ -755,7 +658,7 @@ $active_tab_php = $_GET['tab'] ?? 'content';
     <dialog id="lessonModal" class="modal">
         <div class="modal-box modal-box-premium p-0 max-w-2xl">
             <div class="px-8 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center sticky top-0 z-10">
-                <div class="text-xs font-bold text-slate-400 italic" id="modalHeaderTitle">Add Content</div>
+                <div class="text-xs font-bold text-slate-400 italic">Add Content</div>
                 <form method="dialog"><button class="text-slate-400 hover:text-slate-900"><i data-lucide="x" class="w-5 h-5"></i></button></form>
             </div>
             
@@ -884,14 +787,34 @@ $active_tab_php = $_GET['tab'] ?? 'content';
         <form method="dialog" class="modal-backdrop bg-slate-900/50 backdrop-blur-sm"><button>close</button></form>
     </dialog>
 
+    <dialog id="addQuizModal" class="modal">
+        <div class="modal-box modal-box-premium p-8 max-w-lg">
+            <h3 class="font-bold text-lg mb-4">Create New Quiz</h3>
+            <form method="POST">
+                <input type="hidden" name="create_quiz" value="1">
+                <div class="mb-6">
+                    <label class="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Quiz Title</label>
+                    <input type="text" name="quiz_title" class="form-input-premium text-xl font-bold text-indigo-600" required placeholder="e.g. Final Assessment">
+                </div>
+                <div class="flex justify-end gap-3">
+                    <form method="dialog"><button class="btn btn-ghost">Cancel</button></form>
+                    <button type="submit" class="btn btn-premium-dark rounded-xl px-6">Create & Edit Questions</button>
+                </div>
+            </form>
+        </div>
+        <form method="dialog" class="modal-backdrop bg-slate-900/50 backdrop-blur-sm"><button>close</button></form>
+    </dialog>
+
     <script>
         lucide.createIcons();
 
+        // Toggle Price Input Visibility
         function togglePrice(show) {
             const field = document.getElementById('priceField');
             if(show) field.classList.remove('hidden'); else field.classList.add('hidden');
         }
 
+        // Switch Main Tabs (Content, Description, Options, Quiz)
         function switchMainTab(t){
             document.querySelectorAll('[id^="view-"]').forEach(e=>e.classList.add('hidden'));
             document.getElementById('view-'+t).classList.remove('hidden');
@@ -899,11 +822,12 @@ $active_tab_php = $_GET['tab'] ?? 'content';
             document.querySelectorAll('.tab-link').forEach(e=>e.classList.remove('tab-active'));
             document.getElementById('tab-btn-'+t).classList.add('tab-active');
             
-            // Persist tab selection via hidden inputs
+            // Persist selection via hidden input
             document.getElementById('mainRedirectTab').value = t;
             if(document.getElementById('headerRedirectTab')) document.getElementById('headerRedirectTab').value = t;
         }
 
+        // Switch Modal Tabs (Content, Description, Attachment)
         function switchModalTab(t){
             document.querySelectorAll('.modal-tab').forEach(e=>{e.classList.remove('active');e.classList.add('inactive')});
             document.getElementById('mtab-'+t).classList.add('active');
@@ -913,6 +837,7 @@ $active_tab_php = $_GET['tab'] ?? 'content';
             document.getElementById('tab-pane-'+t).classList.remove('hidden');
         }
 
+        // Open Modal & Populate Data
         function openLessonModal(id='',title='',type='video',url='',dur='00:00',down=0,resp='<?= $instructor_name ?>',desc=''){
             // Populate Fields
             document.getElementById('lessonIdInput').value=id;
@@ -963,6 +888,7 @@ $active_tab_php = $_GET['tab'] ?? 'content';
             document.getElementById('lessonModal').showModal();
         }
 
+        // Toggle Fields based on Type
         function toggleFields(t){
             document.getElementById('videoFields').classList.add('hidden');
             document.getElementById('fileFields').classList.add('hidden');
@@ -985,6 +911,7 @@ $active_tab_php = $_GET['tab'] ?? 'content';
             }
         }
 
+        // Toggle Video Source (Link vs Upload)
         function toggleVideoSource(s){
             if(s==='link'){
                 document.getElementById('vSourceLink').classList.remove('hidden');
@@ -995,6 +922,7 @@ $active_tab_php = $_GET['tab'] ?? 'content';
             }
         }
 
+        // Auto-calculate Video Duration
         function calculateDuration(i){
             const f=i.files[0];
             if(f){
@@ -1005,8 +933,9 @@ $active_tab_php = $_GET['tab'] ?? 'content';
                     const d=v.duration;
                     const h=Math.floor(d/3600);
                     const m=Math.floor((d%3600)/60);
+                    // Format HH:MM
                     const formatted = (h<10?"0"+h:h)+":"+(m<10?"0"+m:m);
-                    document.getElementById('durationInput').value=formatted;
+                    document.getElementById('durationInput').value = formatted;
                 };
                 v.src=URL.createObjectURL(f);
             }
