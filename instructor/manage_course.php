@@ -95,6 +95,7 @@ $lessons = $lessons_stmt->fetchAll();
                     <a href="manage_course.php?id=<?= $course_id ?>&action=publish" class="btn btn-success text-white">Publish Course</a>
                 <?php endif; ?>
                 <a href="edit_course.php?id=<?= $course_id ?>" class="btn btn-outline">Edit Info</a>
+                <a href="create_quiz.php?course_id=<?= $course_id ?>" class="btn btn-secondary text-white">📝 Add Quiz</a>
             </div>
         </div>
 
