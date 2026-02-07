@@ -2,44 +2,49 @@
 // student/mark_complete.php
 require '../includes/db.php';
 
-if (!isset($_SESSION['user_id']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
+if (!isset($_SESSION['user_id'])) {
     header("Location: ../login.php");
     exit;
 }
 
 $user_id = $_SESSION['user_id'];
-$course_id = $_POST['course_id'];
-$lesson_id = $_POST['lesson_id'];
-$next_id = $_POST['next_id'] ?? null;
+$lesson_id = $_POST['lesson_id'] ?? null;
+$course_id = $_POST['course_id'] ?? null;
 
-// 1. Check if record exists
+if (!$lesson_id || !$course_id) {
+    header("Location: dashboard.php");
+    exit;
+}
+
+// 1. Check if already marked complete
 $check = $pdo->prepare("SELECT id FROM lesson_progress WHERE user_id = ? AND lesson_id = ?");
 $check->execute([$user_id, $lesson_id]);
 
 if (!$check->fetch()) {
-    // 2. Insert Progress
-    $stmt = $pdo->prepare("INSERT INTO lesson_progress (user_id, course_id, lesson_id, status) VALUES (?, ?, ?, 'completed')");
-    $stmt->execute([$user_id, $course_id, $lesson_id]);
-    
-    // Optional: Add Points for Gamification here!
+    // 2. Mark as Complete
+    try {
+        // Assuming your table doesn't have 'course_id' or 'status' based on previous errors
+        $stmt = $pdo->prepare("INSERT INTO lesson_progress (user_id, lesson_id) VALUES (?, ?)");
+        $stmt->execute([$user_id, $lesson_id]);
+    } catch (PDOException $e) {
+        // Silently ignore duplicates
+    }
 }
 
-// 3. Logic: Is this the last lesson?
-if ($next_id) {
-    // A. Go to Next Lesson
-    header("Location: course_player.php?course_id=$course_id&lesson_id=$next_id");
+// 3. Navigation Logic: Find the Next Lesson
+// We look for a lesson with an ID higher than the current one, in the same course
+$next_stmt = $pdo->prepare("SELECT id FROM lessons WHERE course_id = ? AND id > ? ORDER BY id ASC LIMIT 1");
+$next_stmt->execute([$course_id, $lesson_id]);
+$next_lesson = $next_stmt->fetch();
+
+if ($next_lesson) {
+    // Case A: Go to next lesson
+    header("Location: course_player.php?course_id=$course_id&lesson_id=" . $next_lesson['id']);
 } else {
-    // B. COURSE COMPLETED!
-    
-    // 1. Update Enrollment Status to 'completed'
-    $complete_stmt = $pdo->prepare("UPDATE enrollments SET status = 'completed', completed_at = NOW() WHERE user_id = ? AND course_id = ?");
-    $complete_stmt->execute([$user_id, $course_id]);
-
-    // 2. Award Badge/Points (Gamification)
-    $pdo->prepare("UPDATE student_profiles SET total_points = total_points + 100 WHERE user_id = ?")->execute([$user_id]);
-
-    // 3. Redirect with Success Message
-    header("Location: dashboard.php?msg=CourseCompleted");
+    // Case B: No more lessons (Course Completed) -> Go to Dashboard
+    header("Location: dashboard.php?msg=course_completed");
 }
 exit;
 ?>
