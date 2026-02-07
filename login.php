@@ -6,9 +6,10 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // Redirect if already logged in
 if (isset($_SESSION['user_id'])) {
-    if ($_SESSION['role'] === 'admin') header("Location: admin/dashboard.php");
-    elseif ($_SESSION['role'] === 'instructor') header("Location: instructor/dashboard.php");
-    else header("Location: student/dashboard.php");
+    // if ($_SESSION['role'] === 'admin') header("Location: admin/dashboard.php");
+    // elseif ($_SESSION['role'] === 'instructor') header("Location: instructor/dashboard.php");
+    // else header("Location: student/dashboard.php");
+    header("Location: {$_SESSION['role']}/dashboard.php");
     exit;
 }
 
