@@ -70,7 +70,41 @@ $my_courses = $my_courses_stmt->fetchAll();
                 </div>
             </div>
         </div>
-
+        <h2 class="text-2xl font-bold mb-6 border-b pb-2">My Learning</h2>
+        
+        <?php if (count($my_courses) > 0): ?>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                <?php foreach ($my_courses as $my_course): ?>
+                    <div class="card card-side bg-base-100 shadow-xl border">
+                        <figure class="w-1/3">
+                            <img src="../<?= htmlspecialchars($my_course['thumbnail']) ?>" alt="Course" class="h-full object-cover" />
+                        </figure>
+                        <div class="card-body w-2/3">
+                            <h2 class="card-title text-lg"><?= htmlspecialchars($my_course['title']) ?></h2>
+                            
+                            <?php if($my_course['enrollment_status'] === 'completed'): ?>
+                                <div class="badge badge-success text-white">Completed</div>
+                                <p class="text-sm text-gray-500">You have mastered this course!</p>
+                                <div class="card-actions justify-end">
+                                    <a href="certificate.php?course_id=<?= $my_course['id'] ?>" target="_blank" class="btn btn-warning btn-sm">
+                                        🏆 Download Certificate
+                                    </a>
+                                </div>
+                            <?php else: ?>
+                                <div class="badge badge-info text-white">In Progress</div>
+                                <progress class="progress progress-primary w-56" value="40" max="100"></progress>
+                                <div class="card-actions justify-end">
+                                    <a href="course_player.php?course_id=<?= $my_course['id'] ?>" class="btn btn-primary btn-sm">Continue</a>
+                                </div>
+                            <?php endif; ?>
+                            
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-ghost mb-8">You haven't enrolled in any courses yet.</div>
+        <?php endif; ?>
         <h2 id="catalog" class="text-2xl font-bold mb-6 border-b pb-2">Available Courses</h2>
         
         <?php if (count($courses) > 0): ?>

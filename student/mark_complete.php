@@ -24,11 +24,21 @@ if (!$check->fetch()) {
     // Optional: Add Points for Gamification here!
 }
 
-// 3. Redirect
+// 3. Logic: Is this the last lesson?
 if ($next_id) {
+    // A. Go to Next Lesson
     header("Location: course_player.php?course_id=$course_id&lesson_id=$next_id");
 } else {
-    // Course Finished!
+    // B. COURSE COMPLETED!
+    
+    // 1. Update Enrollment Status to 'completed'
+    $complete_stmt = $pdo->prepare("UPDATE enrollments SET status = 'completed', completed_at = NOW() WHERE user_id = ? AND course_id = ?");
+    $complete_stmt->execute([$user_id, $course_id]);
+
+    // 2. Award Badge/Points (Gamification)
+    $pdo->prepare("UPDATE student_profiles SET total_points = total_points + 100 WHERE user_id = ?")->execute([$user_id]);
+
+    // 3. Redirect with Success Message
     header("Location: dashboard.php?msg=CourseCompleted");
 }
 exit;
