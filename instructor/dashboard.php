@@ -4,19 +4,22 @@ require '../includes/db.php';
 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
+// Security Check
 if (!isset($_SESSION['user_id']) || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'instructor')) {
     header("Location: ../login.php");
     exit;
 }
 
 $instructor_id = $_SESSION['user_id'];
+$instructor_name = $_SESSION['name'] ?? 'Instructor';
 $search = $_GET['search'] ?? '';
 
 // --- HANDLE POST REQUESTS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['create_course'])) {
         $title = trim($_POST['title']);
-        $sql = "INSERT INTO courses (title, instructor_id, is_published, tags, duration) VALUES (?, ?, 0, '', '00:00')";
+        // Default values for a new course
+        $sql = "INSERT INTO courses (title, instructor_id, is_published, tags, duration, views) VALUES (?, ?, 0, '', '0h 0m', 0)";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$title, $instructor_id]);
         $new_id = $pdo->lastInsertId();
@@ -27,16 +30,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $course_id = $_POST['course_id'];
         $tag_name = trim($_POST['tag_name']);
         $action = $_POST['action'];
+        
         $stmt = $pdo->prepare("SELECT tags FROM courses WHERE id = ? AND instructor_id = ?");
         $stmt->execute([$course_id, $instructor_id]);
         $current = $stmt->fetchColumn();
+        
         $tags_array = $current ? explode(',', $current) : [];
-        $tags_array = array_map('trim', $tags_array);
+        $tags_array = array_map('trim', array_filter($tags_array));
+        
         if ($action === 'add' && !empty($tag_name) && !in_array($tag_name, $tags_array)) {
             $tags_array[] = $tag_name;
         } elseif ($action === 'remove') {
             $tags_array = array_diff($tags_array, [$tag_name]);
         }
+        
         $update = $pdo->prepare("UPDATE courses SET tags = ? WHERE id = ?");
         $update->execute([implode(',', $tags_array), $course_id]);
         header("Location: dashboard.php");
@@ -44,9 +51,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch Courses
-$sql = "SELECT c.*, (SELECT COUNT(*) FROM lessons WHERE course_id = c.id) as content_count 
-        FROM courses c WHERE c.instructor_id = ? AND c.title LIKE ? ORDER BY c.created_at DESC";
+// --- FETCH COURSES (Fully Dynamic) ---
+$sql = "SELECT c.*, 
+        (SELECT COUNT(*) FROM lessons WHERE course_id = c.id) as content_count 
+        FROM courses c 
+        WHERE c.instructor_id = ? AND c.title LIKE ? 
+        ORDER BY c.created_at DESC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute([$instructor_id, "%$search%"]);
 $courses = $stmt->fetchAll();
@@ -64,10 +74,9 @@ $courses = $stmt->fetchAll();
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
     
     <style>
-        /* --- DISTINCTIVE PREMIUM STYLE --- */
+        /* --- LOCKED PREMIUM DESIGN DNA --- */
         body { 
             font-family: 'Plus Jakarta Sans', sans-serif;
-            /* Distinct Gradient Background */
             background: linear-gradient(135deg, #f0f4ff 0%, #eef2f6 100%);
             color: #1e293b;
             min-height: 100vh;
@@ -75,7 +84,6 @@ $courses = $stmt->fetchAll();
         
         h1, h2, h3, .heading-font { font-family: 'Outfit', sans-serif; letter-spacing: -0.02em; }
 
-        /* HEADER: Detached & Floating */
         .premium-header {
             background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(20px);
@@ -83,12 +91,10 @@ $courses = $stmt->fetchAll();
             box-shadow: 0 4px 20px -5px rgba(0, 0, 0, 0.05);
         }
 
-        /* CARD: Deep Shadow & Floating Effect */
         .course-card {
             background: #ffffff;
             border: 1px solid white;
-            border-radius: 1.5rem; /* Large rounded corners */
-            /* This shadow is what makes it "pop" */
+            border-radius: 1.5rem;
             box-shadow: 0 10px 40px -10px rgba(0,0,0,0.08); 
             transition: all 0.3s ease-out;
             position: relative;
@@ -96,11 +102,10 @@ $courses = $stmt->fetchAll();
         }
         .course-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 20px 50px -10px rgba(37, 99, 235, 0.15); /* Blue glow on hover */
+            box-shadow: 0 20px 50px -10px rgba(37, 99, 235, 0.15); 
             border-color: #e0e7ff;
         }
 
-        /* RIBBONS: Modern Neon Style */
         .ribbon-wrapper {
             width: 90px; height: 90px; overflow: hidden; position: absolute; top: 0; right: 0; pointer-events: none; z-index: 20;
         }
@@ -109,13 +114,12 @@ $courses = $stmt->fetchAll();
             transform: rotate(45deg); position: absolute; padding: 8px 0; width: 130px; top: 18px; right: -38px; color: white;
             box-shadow: 0 4px 10px rgba(0,0,0,0.1);
         }
-        .ribbon.published { background: #3b82f6; /* Bright Blue */ } 
-        .ribbon.draft { background: #94a3b8; /* Slate */ }
+        .ribbon.published { background: #3b82f6; } 
+        .ribbon.draft { background: #94a3b8; }
 
-        /* TAGS: Colorful Pills */
         .tag {
-            background: #eff6ff; /* Light Blue Bg */
-            color: #2563eb; /* Blue Text */
+            background: #eff6ff;
+            color: #2563eb;
             padding: 5px 14px; border-radius: 20px;
             font-size: 12px; font-weight: 700; 
             border: 1px solid #dbeafe;
@@ -123,11 +127,9 @@ $courses = $stmt->fetchAll();
             transition: all 0.2s;
         }
         .tag:hover { background: #2563eb; color: white; border-color: #2563eb; }
-        .tag-remove:hover { color: #ffcccc; }
 
-        /* BUTTONS: High Contrast */
         .btn-edit {
-            background: #0f172a; /* Solid Black/Navy */
+            background: #0f172a;
             color: white; border: none; font-weight: 700; letter-spacing: 0.05em;
             text-transform: uppercase; font-size: 11px;
             box-shadow: 0 4px 15px rgba(15, 23, 42, 0.2);
@@ -140,7 +142,6 @@ $courses = $stmt->fetchAll();
         }
         .btn-share:hover { border-color: #94a3b8; color: #1e293b; background: #f8fafc; }
 
-        /* SEARCH INPUT */
         .search-input {
             background: white; border: 2px solid #eef2f6; border-radius: 12px;
             padding: 10px 16px 10px 42px; font-weight: 500; color: #334155;
@@ -148,7 +149,6 @@ $courses = $stmt->fetchAll();
         }
         .search-input:focus { border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); outline: none; }
 
-        /* FAB: Gradient Circle */
         .fab {
             width: 68px; height: 68px;
             background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
@@ -160,11 +160,10 @@ $courses = $stmt->fetchAll();
         }
         .fab:hover { transform: scale(1.1) rotate(90deg); }
 
-        /* LAYOUT TOGGLES */
         .toggle-btn { padding: 8px; border-radius: 8px; color: #94a3b8; transition: 0.2s; }
         .toggle-btn.active { background: white; color: #2563eb; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
 
-        /* GRID/LIST Overrides */
+        /* Grid View Layout */
         #courseContainer.grid-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 2rem; }
         #courseContainer.grid-view .course-card { flex-direction: column; min-height: 380px; }
         #courseContainer.grid-view .course-left { border: none; padding-bottom: 0; }
@@ -189,12 +188,32 @@ $courses = $stmt->fetchAll();
 
             <div class="flex-1 max-w-lg mx-12 relative">
                 <i data-lucide="search" class="absolute left-4 top-3.5 w-5 h-5 text-gray-400"></i>
-                <form method="GET"><input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="Search your masterpieces..." class="search-input w-full"></form>
+                <form method="GET">
+                    <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="Search your masterpieces..." class="search-input w-full">
+                </form>
             </div>
 
-            <div class="bg-gray-100 p-1.5 rounded-xl flex gap-1">
-                <button id="btnList" class="toggle-btn active" onclick="toggleView('list')"><i data-lucide="list" class="w-5 h-5"></i></button>
-                <button id="btnGrid" class="toggle-btn" onclick="toggleView('grid')"><i data-lucide="layout-grid" class="w-5 h-5"></i></button>
+            <div class="flex items-center gap-6">
+                <div class="bg-gray-100 p-1.5 rounded-xl flex gap-1">
+                    <button id="btnList" class="toggle-btn active" onclick="toggleView('list')"><i data-lucide="list" class="w-5 h-5"></i></button>
+                    <button id="btnGrid" class="toggle-btn" onclick="toggleView('grid')"><i data-lucide="layout-grid" class="w-5 h-5"></i></button>
+                </div>
+
+                <div class="dropdown dropdown-end">
+                    <div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar border-2 border-white shadow-sm">
+                        <div class="w-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold">
+                            <?= strtoupper(substr($instructor_name, 0, 1)) ?>
+                        </div>
+                    </div>
+                    <ul tabindex="0" class="mt-3 z-[1] p-2 shadow-2xl menu menu-sm dropdown-content bg-white/90 backdrop-blur-lg border border-white rounded-2xl w-52 text-slate-700">
+                        <li class="px-4 py-2">
+                            <span class="font-bold text-slate-900 block"><?= htmlspecialchars($instructor_name) ?></span>
+                            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Instructor</span>
+                        </li>
+                        <div class="divider my-0"></div>
+                        <li><a href="../logout.php" class="text-red-500 font-bold hover:bg-red-50"><i data-lucide="log-out" class="w-4 h-4"></i> Logout</a></li>
+                    </ul>
+                </div>
             </div>
         </div>
     </header>
@@ -217,18 +236,18 @@ $courses = $stmt->fetchAll();
                     </div>
 
                     <div class="course-left p-8 flex-1 flex flex-col justify-center border-r border-dashed border-gray-100">
-                        <h3 class="heading-font text-2xl font-bold text-slate-800 mb-4 truncate pr-12 hover:text-blue-600 transition-colors cursor-pointer">
+                        <h3 class="heading-font text-2xl font-bold text-slate-800 mb-4 truncate pr-12">
                             <?= htmlspecialchars($course['title']) ?>
                         </h3>
                         
                         <div class="flex flex-wrap items-center gap-2">
                             <?php 
-                                $tags = array_filter(explode(',', $course['tags']));
+                                $tags = array_filter(explode(',', $course['tags'] ?? ''));
                                 foreach($tags as $tag): $tag = trim($tag); if(empty($tag)) continue;
                             ?>
                                 <span class="tag">
                                     <?= $tag ?> 
-                                    <i data-lucide="x" class="w-3 h-3 tag-remove" onclick="modifyTag(<?= $course['id'] ?>, 'remove', '<?= $tag ?>')"></i>
+                                    <i data-lucide="x" class="w-3 h-3 tag-remove cursor-pointer" onclick="modifyTag(<?= $course['id'] ?>, 'remove', '<?= $tag ?>')"></i>
                                 </span>
                             <?php endforeach; ?>
                             <input type="text" placeholder="+ Add" class="text-xs bg-transparent border-none focus:ring-0 text-slate-400 font-bold p-0 w-16 hover:text-blue-600"
@@ -240,7 +259,7 @@ $courses = $stmt->fetchAll();
                         <div class="grid grid-cols-2 gap-6">
                             <div>
                                 <span class="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Views</span>
-                                <span class="block text-2xl font-bold text-slate-900"><?= $course['views'] ?></span>
+                                <span class="block text-2xl font-bold text-slate-900"><?= number_format($course['views'] ?? 0) ?></span>
                             </div>
                             <div>
                                 <span class="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Content</span>
@@ -248,7 +267,7 @@ $courses = $stmt->fetchAll();
                             </div>
                             <div class="col-span-2 flex items-center gap-2 pt-2 border-t border-gray-100">
                                 <i data-lucide="clock" class="w-4 h-4 text-blue-500"></i>
-                                <span class="text-sm font-bold text-blue-600"><?= $course['duration'] ?></span>
+                                <span class="text-sm font-bold text-blue-600"><?= htmlspecialchars($course['duration'] ?? '0h 0m') ?></span>
                                 <span class="text-xs text-slate-400 font-bold uppercase ml-1">Total Duration</span>
                             </div>
                         </div>
@@ -267,7 +286,9 @@ $courses = $stmt->fetchAll();
         </div>
     </main>
 
-    <button onclick="document.getElementById('createModal').showModal()" class="fab" title="Create New"><i data-lucide="plus" class="w-8 h-8"></i></button>
+    <button onclick="document.getElementById('createModal').showModal()" class="fab" title="Create New">
+        <i data-lucide="plus" class="w-8 h-8"></i>
+    </button>
 
     <dialog id="createModal" class="modal">
         <div class="modal-box bg-white p-0 rounded-3xl max-w-lg shadow-2xl overflow-hidden">
@@ -290,6 +311,7 @@ $courses = $stmt->fetchAll();
 
     <script>
         lucide.createIcons();
+
         function toggleView(viewType) {
             const c = document.getElementById('courseContainer');
             const bL = document.getElementById('btnList');
@@ -304,11 +326,12 @@ $courses = $stmt->fetchAll();
                 localStorage.setItem('courseView', 'list');
             }
         }
+
         document.addEventListener("DOMContentLoaded", () => toggleView(localStorage.getItem('courseView') || 'list'));
         
         function shareCourse(id) {
             const url = window.location.origin + "/learnsphere/course_details.php?id=" + id;
-            navigator.clipboard.writeText(url).then(() => alert("Copied: " + url));
+            navigator.clipboard.writeText(url).then(() => alert("Copied to clipboard!"));
         }
 
         function modifyTag(id, action, tag) {

@@ -3,6 +3,8 @@
 require '../includes/db.php';
 
 // 1. Security Check
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../login.php");
     exit;
@@ -27,8 +29,15 @@ $quizzes_stmt = $pdo->prepare("SELECT * FROM quizzes WHERE course_id = ?");
 $quizzes_stmt->execute([$course_id]);
 $quizzes = $quizzes_stmt->fetchAll();
 
-// 5. Fetch User Progress (To show checkmarks)
-$prog_stmt = $pdo->prepare("SELECT lesson_id FROM lesson_progress WHERE user_id = ? AND course_id = ? AND status = 'completed'");
+// 5. Fetch User Progress (FIXED: Removed 'status' check and 'course_id' dependency)
+// This query now joins the lessons table to filter by course, and assumes existence = progress.
+$prog_sql = "
+    SELECT DISTINCT lp.lesson_id 
+    FROM lesson_progress lp
+    JOIN lessons l ON lp.lesson_id = l.id
+    WHERE lp.user_id = ? AND l.course_id = ?
+";
+$prog_stmt = $pdo->prepare($prog_sql);
 $prog_stmt->execute([$user_id, $course_id]);
 $completed_lessons = $prog_stmt->fetchAll(PDO::FETCH_COLUMN);
 
@@ -89,7 +98,7 @@ if ($content_type === 'quiz' && $current_item) {
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="inline-block w-5 h-5 stroke-current"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
             <?php if($content_type === 'lesson'): ?>
-                <button class="btn btn-primary btn-sm" onclick="my_modal_ai.showModal()">🤖 Ask AI Tutor</button>
+                <button class="btn btn-primary btn-sm" onclick="document.getElementById('my_modal_ai').showModal()">🤖 Ask AI Tutor</button>
             <?php endif; ?>
         </div>
     </div>
@@ -104,13 +113,13 @@ if ($content_type === 'quiz' && $current_item) {
                     <?php $is_completed = in_array($lesson['id'], $completed_lessons); ?>
                     <li>
                         <a href="?course_id=<?= $course_id ?>&lesson_id=<?= $lesson['id'] ?>" 
-                           class="<?= ($content_type == 'lesson' && $current_item['id'] == $lesson['id']) ? 'active' : '' ?> flex justify-between">
+                           class="<?= ($content_type == 'lesson' && isset($current_item['id']) && $current_item['id'] == $lesson['id']) ? 'active' : '' ?> flex justify-between">
                             <span>
                                 <span class="badge badge-sm badge-ghost mr-1"><?= $index + 1 ?></span>
                                 <?= htmlspecialchars($lesson['title']) ?>
                             </span>
                             <?php if($is_completed): ?>
-                                <span class="text-success">✔</span>
+                                <span class="text-success font-bold">✓</span>
                             <?php endif; ?>
                         </a>
                     </li>
@@ -121,7 +130,7 @@ if ($content_type === 'quiz' && $current_item) {
                     <?php foreach ($quizzes as $quiz): ?>
                         <li>
                             <a href="?course_id=<?= $course_id ?>&quiz_id=<?= $quiz['id'] ?>" 
-                               class="<?= ($content_type == 'quiz' && $current_item['id'] == $quiz['id']) ? 'active' : '' ?>">
+                               class="<?= ($content_type == 'quiz' && isset($current_item['id']) && $current_item['id'] == $quiz['id']) ? 'active' : '' ?>">
                                 📝 <?= htmlspecialchars($quiz['title']) ?>
                             </a>
                         </li>
@@ -140,6 +149,7 @@ if ($content_type === 'quiz' && $current_item) {
                         <?php if ($current_item['type'] == 'video'): ?>
                             <?php 
                                 $video_id = '';
+                                // Regex to extract YouTube ID
                                 if (preg_match('/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/', $current_item['content_url'], $match)) {
                                     $video_id = $match[1];
                                 }
@@ -147,15 +157,17 @@ if ($content_type === 'quiz' && $current_item) {
                             <?php if($video_id): ?>
                                 <iframe class="w-full h-full" src="https://www.youtube.com/embed/<?= $video_id ?>" frameborder="0" allowfullscreen></iframe>
                             <?php else: ?>
-                                <div class="text-white">Invalid Video URL</div>
+                                <div class="text-white p-4">Video content unavailable or invalid URL.</div>
                             <?php endif; ?>
                         <?php elseif ($current_item['type'] == 'document'): ?>
                             <iframe src="../<?= htmlspecialchars($current_item['content_url']) ?>" class="w-full h-full bg-white"></iframe>
+                        <?php else: ?>
+                            <div class="text-white">Text-only lesson</div>
                         <?php endif; ?>
                     </div>
 
                     <div class="flex justify-between items-center border-t pt-4">
-                        <button class="btn btn-outline btn-sm">Previous</button>
+                        <button class="btn btn-outline btn-sm" onclick="history.back()">Previous</button>
                         
                         <form method="POST" action="mark_complete.php">
                             <input type="hidden" name="course_id" value="<?= $course_id ?>">
@@ -166,7 +178,7 @@ if ($content_type === 'quiz' && $current_item) {
 
                     <div class="mt-8 p-6 bg-white rounded-lg shadow">
                         <h3 class="font-bold text-lg mb-2">Lesson Notes</h3>
-                        <p class="text-gray-600"><?= nl2br(htmlspecialchars($current_item['text_content'])) ?></p>
+                        <p class="text-gray-600 leading-relaxed"><?= nl2br(htmlspecialchars($current_item['text_content'] ?? 'No notes available.')) ?></p>
                     </div>
 
                 <?php elseif ($content_type === 'quiz'): ?>
@@ -174,7 +186,8 @@ if ($content_type === 'quiz' && $current_item) {
                         <div class="card-body">
                             <h3 class="card-title text-xl mb-4">Quiz Questions</h3>
                             
-                            <form method="POST" action="submit_quiz.php"> <?php foreach($quiz_questions as $idx => $q): ?>
+                            <form method="POST" action="submit_quiz.php"> 
+                                <?php foreach($quiz_questions as $idx => $q): ?>
                                     <div class="mb-6">
                                         <p class="font-bold mb-2"><?= ($idx+1) . ". " . htmlspecialchars($q['question_text']) ?></p>
                                         <div class="form-control">
@@ -199,7 +212,7 @@ if ($content_type === 'quiz' && $current_item) {
                                 <?php endforeach; ?>
                                 
                                 <div class="card-actions justify-end">
-                                    <button type="button" class="btn btn-primary" onclick="alert('Quiz Submission Logic Placeholder')">Submit Quiz</button>
+                                    <button type="button" class="btn btn-primary" onclick="alert('Quiz Submission logic to be implemented.')">Submit Quiz</button>
                                 </div>
                             </form>
                         </div>
@@ -258,19 +271,27 @@ if ($content_type === 'quiz' && $current_item) {
             inputField.value = '';
 
             try {
+                // Point this to your actual AI backend endpoint
                 const response = await fetch('../api/chat_logic.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ question: question, context: lessonContext })
                 });
+                if (!response.ok) throw new Error('API Error');
                 const data = await response.json();
                 addMessage(data.answer, 'ai');
             } catch (error) {
-                addMessage("AI Offline.", 'ai');
+                console.error(error);
+                addMessage("AI Offline (Check console).", 'ai');
             }
         }
-        sendBtn.addEventListener('click', (e) => { e.preventDefault(); sendMessage(); });
-        inputField.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+        
+        if(sendBtn) {
+            sendBtn.addEventListener('click', (e) => { e.preventDefault(); sendMessage(); });
+        }
+        if(inputField) {
+            inputField.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+        }
     </script>
 </body>
 </html>
