@@ -123,7 +123,11 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
         .stat-box { background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); }
         .tab-active-custom { background-color: #6366f1 !important; color: white !important; }
         .review-box { border: 1px solid rgba(255, 165, 0, 0.3); }
-        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
         /* Full Screen Styles */
         body.fullscreen-active nav { display: none !important; }
         body.fullscreen-active #sidebar { display: none !important; }
@@ -193,7 +197,7 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
                         </div>
                         <div class="lg:w-2/3 flex flex-col justify-between">
                             <div>
-                                <h1 class="text-3xl font-bold mb-3 text-white"><?= htmlspecialchars($course['title']) ?></h1>
+                                <h1 class="text-3xl font-bold mb-3 text-white leading-tight"><?= htmlspecialchars($course['title']) ?></h1>
                                 <p class="text-slate-400 text-sm line-clamp-2"><?= htmlspecialchars($course['description']) ?></p>
                             </div>
                             <div class="mt-6 bg-slate-800/50 rounded-xl p-5 border border-white/10">
@@ -294,7 +298,7 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
                                         <input type="radio" name="rating" value="5.0" class="bg-orange-400 mask mask-star-2 mask-half-2" checked />
                                     </div>
                                 </div>
-                                <div class="mb-6"><label class="block text-sm font-medium text-slate-400 mb-2">Review</label><textarea name="review_text" class="textarea textarea-bordered w-full bg-slate-900 text-white border-white/20 focus:border-indigo-500" rows="4" required></textarea></div>
+                                <div class="mb-6"><label class="block text-sm font-medium text-slate-400 mb-2">Review</label><textarea name="review_text" class="textarea textarea-bordered w-full bg-slate-900 text-white border-white/20 focus:border-indigo-500" rows="4" required placeholder="Tell us what you liked..."></textarea></div>
                                 <div class="modal-action"><button type="button" class="btn btn-ghost text-slate-400" onclick="review_modal.close()">Cancel</button><button type="submit" name="submit_review" class="btn btn-primary bg-indigo-600 border-none">Submit Review</button></div>
                             </form>
                         </div>
@@ -401,17 +405,6 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
                             <div class="glass-panel rounded-2xl p-8 border border-white/10">
                                 <div class="card-body p-0">
                                     <h3 class="text-2xl font-bold text-white mb-2">Quiz Time!</h3>
-                                    
-                                    <?php if (isset($_GET['score'])): ?>
-                                        <div class="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 text-center mb-6">
-                                            <div class="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                                                <i data-lucide="trophy" class="w-6 h-6 text-white"></i>
-                                            </div>
-                                            <h3 class="text-xl font-bold text-white mb-1">Quiz Completed!</h3>
-                                            <p class="text-slate-300">You scored <span class="text-emerald-400 font-bold text-lg"><?= $_GET['score'] ?></span> / <?= $_GET['total'] ?></p>
-                                        </div>
-                                    <?php endif; ?>
-
                                     <p class="text-slate-400 mb-6">Test your knowledge of the module.</p>
                                     <div class="divider border-white/10"></div>
                                     <form method="POST" action="submit_quiz.php"> 
@@ -440,6 +433,37 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
 
     </div>
 
+    <?php if (isset($_GET['score'])): ?>
+    <dialog id="quiz_result_modal" class="modal">
+        <div class="modal-box bg-slate-900 border border-white/10 text-center relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-24 bg-emerald-500/10 blur-3xl -z-10"></div>
+            
+            <div class="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/30">
+                <i data-lucide="trophy" class="w-8 h-8 text-white"></i>
+            </div>
+            
+            <h3 class="font-bold text-2xl text-white mb-2">Quiz Completed!</h3>
+            <p class="text-slate-400 mb-6">Great job on finishing the assessment.</p>
+            
+            <div class="bg-slate-800/50 rounded-xl p-4 border border-white/5 mb-6">
+                <span class="text-sm text-slate-400 uppercase tracking-wider font-bold">Your Score</span>
+                <div class="flex justify-center items-baseline gap-1 mt-1">
+                    <span class="text-4xl font-black text-emerald-400"><?= $_GET['score'] ?></span>
+                    <span class="text-xl text-slate-500">/ <?= $_GET['total'] ?></span>
+                </div>
+            </div>
+
+            <div class="modal-action justify-center">
+                <form method="dialog">
+                    <a href="dashboard.php" class="btn btn-outline text-slate-300 hover:text-white border-white/20">Dashboard</a>
+                    <button class="btn btn-primary bg-indigo-600 border-none hover:bg-indigo-700 px-8">Close</button>
+                </form>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+    <?php endif; ?>
+
     <script>
         lucide.createIcons();
         function toggleFullscreen() { document.body.classList.toggle('fullscreen-active'); }
@@ -451,6 +475,12 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
             ratingInputs.forEach(input => {
                 input.addEventListener('change', () => { ratingLabel.textContent = input.value; });
             });
+        }
+
+        // Auto-show Result Modal
+        const resultModal = document.getElementById('quiz_result_modal');
+        if (resultModal) {
+            resultModal.showModal();
         }
     </script>
 </body>
