@@ -11,8 +11,23 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $course_id = $_GET['course_id'] ?? 0;
-$user_id = $_SESSION['user_id'];
-$user_name = $_SESSION['name'] ?? 'User';
+// ... inside student/course_player.php ...
+
+$user_id = $_SESSION['user_id']; // (Existing line)
+$user_name = $_SESSION['name'] ?? 'User'; // (Existing line)
+
+// --- ADD THIS BLOCK: UPDATE START DATE ---
+// Check if this is the first time the user is accessing the course
+$check_start = $pdo->prepare("SELECT started_at FROM enrollments WHERE student_id = ? AND course_id = ?");
+$check_start->execute([$user_id, $course_id]);
+$enrollment = $check_start->fetch();
+
+if ($enrollment && $enrollment['started_at'] === null) {
+    // It's their first time! Stamp the date and set status to in_progress
+    $update_start = $pdo->prepare("UPDATE enrollments SET started_at = NOW(), status = 'in_progress' WHERE student_id = ? AND course_id = ?");
+    $update_start->execute([$user_id, $course_id]);
+}
+// ----------------------------------------
 
 // 2. HANDLE REVIEW SUBMISSION
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_review'])) {
