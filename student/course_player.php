@@ -233,7 +233,8 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
             </div>
             
             <div class="flex-1 overflow-y-auto">
-                <?php foreach($lessons as $idx => $l): 
+                <?php foreach($lessons as $idx => $l):
+                    if($l['type'] == 'quiz') continue; // <--- ADD THIS LINE to hide quizzes from this list 
                     // FIX: Check if $current_item exists before accessing ['id']
                     $is_active = ($content_type == 'lesson' && !empty($current_item) && $current_item['id'] == $l['id']);
                     $is_complete = in_array($l['id'], $completed_lessons);
