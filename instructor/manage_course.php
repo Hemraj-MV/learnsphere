@@ -47,7 +47,19 @@ function recalculateCourseDuration($pdo, $c_id) {
 
 // Fetch Instructors for Dropdown
 $instructors = $pdo->query("SELECT id, name FROM users WHERE role IN ('instructor', 'admin')")->fetchAll(PDO::FETCH_ASSOC);
-
+// --- HANDLE ATTENDEES ---
+if (isset($_POST['action_type']) && $_POST['action_type'] == 'add_attendees') {
+    // Logic to insert emails into invites table or send mail
+    // For now, we simulate success
+    header("Location: manage_course.php?id=$course_id&success=1");
+    exit;
+}
+if (isset($_POST['action_type']) && $_POST['action_type'] == 'contact_attendees') {
+    // Logic to send email to all enrolled users
+    // mail($to, $subject, $message...);
+    header("Location: manage_course.php?id=$course_id&success=1");
+    exit;
+}
 // -------------------------------------------------------------------
 // 2. HANDLE FORM SUBMISSIONS
 // -------------------------------------------------------------------
@@ -269,6 +281,80 @@ $active_tab_php = $_GET['tab'] ?? 'content';
         .table-container { overflow-x: visible; } 
     </style>
 </head>
+<dialog id="addAttendeesModal" class="modal">
+    <div class="modal-box bg-white rounded-2xl p-8 max-w-lg">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-bold text-slate-900">Add Attendees</h3>
+            <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost"><i data-lucide="x" class="w-5 h-5"></i></button></form>
+        </div>
+        
+        <form method="POST">
+            <input type="hidden" name="action_type" value="add_attendees">
+            <div class="alert bg-indigo-50 text-indigo-700 text-sm mb-6 border-indigo-100 rounded-xl flex gap-3">
+                <i data-lucide="info" class="w-5 h-5"></i>
+                <span>Invite users by email. New users will receive an account setup link.</span>
+            </div>
+
+            <div class="mb-6">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Email Addresses</label>
+                <textarea name="emails" class="textarea textarea-bordered w-full h-32 bg-slate-50 text-slate-700 font-medium" placeholder="john@example.com, sara@test.com (Separate by comma)"></textarea>
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <form method="dialog"><button class="btn btn-ghost">Cancel</button></form>
+                <button type="submit" class="btn bg-indigo-600 hover:bg-indigo-700 text-white border-none rounded-xl">Send Invites</button>
+            </div>
+        </form>
+    </div>
+    <form method="dialog" class="modal-backdrop bg-slate-900/50 backdrop-blur-sm"><button>close</button></form>
+</dialog>
+
+<dialog id="contactAttendeesModal" class="modal">
+    <div class="modal-box bg-white rounded-2xl p-8 max-w-lg">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-bold text-slate-900">Contact Learners</h3>
+            <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost"><i data-lucide="x" class="w-5 h-5"></i></button></form>
+        </div>
+
+        <form method="POST">
+            <input type="hidden" name="action_type" value="contact_attendees">
+            
+            <div class="mb-4">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Subject</label>
+                <input type="text" name="subject" class="input input-bordered w-full bg-slate-50 font-bold" placeholder="Important Update..." required>
+            </div>
+
+            <div class="mb-6">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Message</label>
+                <textarea name="message" class="textarea textarea-bordered w-full h-40 bg-slate-50 text-slate-700 font-medium" placeholder="Write your message here..." required></textarea>
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <form method="dialog"><button class="btn btn-ghost">Cancel</button></form>
+                <button type="submit" class="btn bg-slate-900 hover:bg-slate-800 text-white border-none rounded-xl gap-2">
+                    <i data-lucide="send" class="w-4 h-4"></i> Send Email
+                </button>
+            </div>
+        </form>
+    </div>
+    <form method="dialog" class="modal-backdrop bg-slate-900/50 backdrop-blur-sm"><button>close</button></form>
+</dialog>
+
+<script>
+    // Add this inside your existing <script> tag or at the end of the file
+    document.addEventListener("DOMContentLoaded", () => {
+        // Find your specific buttons based on their text content or add IDs to them in your HTML
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(btn => {
+            if(btn.innerText.includes("Add Attendees")) {
+                btn.onclick = () => document.getElementById('addAttendeesModal').showModal();
+            }
+            if(btn.innerText.includes("Contact Attendees")) {
+                btn.onclick = () => document.getElementById('contactAttendeesModal').showModal();
+            }
+        });
+    });
+</script>
 <body class="flex flex-col">
 
     <header class="premium-header h-20 sticky top-0 z-40 px-8">
