@@ -500,9 +500,9 @@ $active_tab_php = $_GET['tab'] ?? 'content';
                 <div id="view-content" class="<?= $active_tab_php == 'content' ? '' : 'hidden' ?>">
                     <div class="flex items-center justify-between mb-8">
                         <h3 class="heading-font font-bold text-xl">Course Modules</h3>
-                        <button onclick="openLessonModal()" class="btn btn-sm btn-premium-dark rounded-xl px-6 gap-2">
-                            <i data-lucide="plus" class="w-4 h-4"></i> Add Content
-                        </button>
+                        <button type="button" onclick="openLessonModal()" class="btn btn-sm btn-premium-dark rounded-xl px-6 gap-2">
+    <i data-lucide="plus" class="w-4 h-4"></i> Add Content
+</button>
                     </div>
                     <div class="overflow-visible min-h-[300px]">
                         <table class="table w-full">
@@ -924,55 +924,58 @@ $active_tab_php = $_GET['tab'] ?? 'content';
         }
 
         // Open Modal & Populate Data
-        function openLessonModal(id='',title='',type='video',url='',dur='00:00',down=0,resp='<?= $instructor_name ?>',desc=''){
-            // Populate Fields
-            document.getElementById('lessonIdInput').value=id;
-            document.getElementById('lessonTitleInput').value=title;
-            document.getElementById('lessonUrlInput').value=url;
-            document.getElementById('responsibleInput').value=resp;
-            document.getElementById('lessonDescInput').value=desc;
-            
-            // Set Modal Title based on context
-            const header = document.getElementById('modalHeaderTitle');
-            if(type === 'quiz') { header.innerText = "Add Quiz"; } else { header.innerText = "Add Content"; }
+        // instructor/manage_course.php - REPLACE THIS FUNCTION
 
-            // Handle Quiz Logic (Hide standard options)
-            if(type === 'quiz') {
-                document.getElementById('opt-video').style.display='none';
-                document.getElementById('opt-document').style.display='none';
-                document.getElementById('opt-image').style.display='none';
-                document.getElementById('opt-quiz').style.display='flex';
-                
-                // Select Quiz Radio
-                const rs=document.getElementsByName('lesson_type');
-                for(const r of rs){if(r.value==='quiz')r.checked=true;}
-                toggleFields('quiz');
-            } else {
-                document.getElementById('opt-video').style.display='flex';
-                document.getElementById('opt-document').style.display='flex';
-                document.getElementById('opt-image').style.display='flex';
-                document.getElementById('opt-quiz').style.display='none';
-                
-                // Select Correct Radio
-                const rs=document.getElementsByName('lesson_type');
-                let found=false; 
-                for(const r of rs){if(r.value===type){r.checked=true;found=true;}}
-                if(!found) rs[0].checked=true; // fallback default
-                
-                toggleFields(type);
-            }
+function openLessonModal(id='', title='', type='video', url='', dur='00:00', down=0, resp='', desc='') {
+    // 1. Reset/Set Form Values
+    document.getElementById('lessonIdInput').value = id;
+    document.getElementById('lessonTitleInput').value = title;
+    document.getElementById('lessonUrlInput').value = url;
+    document.getElementById('durationInput').value = dur;
+    document.getElementById('lessonDescInput').value = desc;
+    
+    // Set Responsible (Default to current user if empty)
+    // We use a safe check here in case the PHP variable isn't passed correctly
+    const currentInstructor = "<?= htmlspecialchars($instructor_name ?? 'Instructor') ?>";
+    document.getElementById('responsibleInput').value = resp || currentInstructor;
 
-            // Populate Content Fields
-            if(type==='video') document.getElementById('videoLinkInput').value=url;
-            else if(url && type !== 'quiz') document.getElementById('fileNameDisplay').innerText="Current: "+url.split('/').pop();
-            
-            document.getElementById('durationInput').value=dur;
-            document.getElementById('downloadInput').checked=(down==1);
-            
-            // Reset to first tab
-            switchModalTab('content');
-            document.getElementById('lessonModal').showModal();
+    // Handle Download Checkbox
+    const downBox = document.getElementById('downloadInput');
+    if(downBox) downBox.checked = (down == 1);
+
+    // 2. Set Modal Title
+    const headerTitle = document.querySelector('#lessonModal .text-xs.font-bold');
+    if(headerTitle) {
+        headerTitle.innerText = (type === 'quiz') ? "Add Quiz" : (id ? "Edit Content" : "Add Content");
+    }
+
+    // 3. Handle Radio Buttons
+    const radios = document.getElementsByName('lesson_type');
+    let found = false;
+    for (const r of radios) {
+        if (r.value === type) {
+            r.checked = true;
+            found = true;
         }
+    }
+    if (!found && radios.length > 0) radios[0].checked = true;
+
+    // 4. Toggle Visibility based on Type
+    toggleFields(type);
+
+    // 5. Handle Content URL Display
+    if (type === 'video') {
+        const vidInput = document.getElementById('videoLinkInput');
+        if(vidInput) vidInput.value = url;
+    } else if (url && type !== 'quiz') {
+        const fileDisplay = document.getElementById('fileNameDisplay');
+        if(fileDisplay) fileDisplay.innerText = "Current: " + url.split('/').pop();
+    }
+
+    // 6. Reset Tabs & Show Modal
+    switchModalTab('content');
+    document.getElementById('lessonModal').showModal();
+}
 
         // Toggle Fields based on Type
         function toggleFields(t){
