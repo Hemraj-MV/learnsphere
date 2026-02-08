@@ -18,7 +18,6 @@ $search = $_GET['search'] ?? '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['create_course'])) {
         $title = trim($_POST['title']);
-        // Default values for a new course
         $sql = "INSERT INTO courses (title, instructor_id, is_published, tags, duration, views) VALUES (?, ?, 0, '', '0h 0m', 0)";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$title, $instructor_id]);
@@ -51,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// --- FETCH COURSES (Fully Dynamic) ---
+// --- FETCH COURSES ---
 $sql = "SELECT c.*, 
         (SELECT COUNT(*) FROM lessons WHERE course_id = c.id) as content_count 
         FROM courses c 
@@ -99,6 +98,7 @@ $courses = $stmt->fetchAll();
             transition: all 0.3s ease-out;
             position: relative;
             overflow: hidden;
+            display: flex; 
         }
         .course-card:hover {
             transform: translateY(-5px);
@@ -120,11 +120,11 @@ $courses = $stmt->fetchAll();
         .tag {
             background: #eff6ff;
             color: #2563eb;
-            padding: 5px 14px; border-radius: 20px;
-            font-size: 12px; font-weight: 700; 
+            padding: 4px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; 
             border: 1px solid #dbeafe;
             display: inline-flex; align-items: center; gap: 6px;
-            transition: all 0.2s;
+            transition: all 0.2s; white-space: nowrap;
         }
         .tag:hover { background: #2563eb; color: white; border-color: #2563eb; }
 
@@ -163,12 +163,58 @@ $courses = $stmt->fetchAll();
         .toggle-btn { padding: 8px; border-radius: 8px; color: #94a3b8; transition: 0.2s; }
         .toggle-btn.active { background: white; color: #2563eb; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
 
-        /* Grid View Layout */
-        #courseContainer.grid-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 2rem; }
-        #courseContainer.grid-view .course-card { flex-direction: column; min-height: 380px; }
-        #courseContainer.grid-view .course-left { border: none; padding-bottom: 0; }
-        #courseContainer.grid-view .course-center { background: transparent; border: none; padding: 0 2rem 1rem 2rem; }
-        #courseContainer.grid-view .course-right { flex-direction: row; padding: 1.5rem 2rem; border-top: 1px dashed #e2e8f0; }
+        /* --- LAYOUT LOGIC --- */
+        
+        /* LIST VIEW (Default) */
+        .list-view .course-card {
+            flex-direction: row; height: 180px;
+        }
+        .list-view .course-left { flex: 1; border-right: 1px dashed #e2e8f0; padding: 2rem; display: flex; flex-direction: column; justify-content: center; }
+        .list-view .course-center { width: 300px; padding: 2rem; display: flex; align-items: center; background: #f8fafc50; }
+        
+        /* List View Buttons: Stacked Vertically */
+        .list-view .course-right { 
+            width: 220px; 
+            padding: 2rem; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 12px; 
+            justify-content: center; 
+        }
+
+        /* GRID VIEW (Kanban) */
+        #courseContainer.grid-view { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); 
+            gap: 2rem; 
+        }
+        .grid-view .course-card {
+            flex-direction: column; height: 100%; min-height: 420px;
+        }
+        .grid-view .course-left { 
+            border-right: none; 
+            padding: 2rem 2rem 1rem 2rem; 
+            flex-grow: 1; /* Key: Pushes everything else down */
+        }
+        .grid-view .course-center { 
+            width: 100%; 
+            padding: 0 2rem 1.5rem 2rem; 
+            background: transparent;
+        }
+        
+        /* Grid View Buttons: Side by Side at Bottom */
+        .grid-view .course-right { 
+            width: 100%; 
+            padding: 1.5rem 2rem; 
+            border-top: 1px dashed #e2e8f0; 
+            display: flex; 
+            flex-direction: row; 
+            gap: 12px;
+            background: #f8fafc;
+            margin-top: auto; /* Ensures it sticks to bottom */
+        }
+        .grid-view .btn-share, .grid-view .btn-edit { flex: 1; }
+
     </style>
 </head>
 <body class="flex flex-col">
@@ -225,9 +271,9 @@ $courses = $stmt->fetchAll();
             <p class="text-slate-500 font-medium text-lg">Manage and track your curriculum.</p>
         </div>
 
-        <div id="courseContainer" class="space-y-6">
+        <div id="courseContainer" class="list-view space-y-6">
             <?php foreach($courses as $course): ?>
-                <div class="course-card flex flex-col md:flex-row h-auto md:h-44 group">
+                <div class="course-card group">
                     
                     <div class="ribbon-wrapper">
                         <div class="ribbon <?= $course['is_published'] ? 'published' : 'draft' ?>">
@@ -235,8 +281,8 @@ $courses = $stmt->fetchAll();
                         </div>
                     </div>
 
-                    <div class="course-left p-8 flex-1 flex flex-col justify-center border-r border-dashed border-gray-100">
-                        <h3 class="heading-font text-2xl font-bold text-slate-800 mb-4 truncate pr-12">
+                    <div class="course-left">
+                        <h3 class="heading-font text-2xl font-bold text-slate-800 mb-4 truncate pr-12" title="<?= htmlspecialchars($course['title']) ?>">
                             <?= htmlspecialchars($course['title']) ?>
                         </h3>
                         
@@ -247,16 +293,16 @@ $courses = $stmt->fetchAll();
                             ?>
                                 <span class="tag">
                                     <?= $tag ?> 
-                                    <i data-lucide="x" class="w-3 h-3 tag-remove cursor-pointer" onclick="modifyTag(<?= $course['id'] ?>, 'remove', '<?= $tag ?>')"></i>
+                                    <i data-lucide="x" class="w-3 h-3 tag-remove cursor-pointer hover:text-red-500" onclick="modifyTag(<?= $course['id'] ?>, 'remove', '<?= $tag ?>')"></i>
                                 </span>
                             <?php endforeach; ?>
-                            <input type="text" placeholder="+ Add" class="text-xs bg-transparent border-none focus:ring-0 text-slate-400 font-bold p-0 w-16 hover:text-blue-600"
+                            <input type="text" placeholder="+ Tag" class="text-xs bg-transparent border-none focus:ring-0 text-slate-400 font-bold p-0 w-16 hover:text-blue-600"
                                    onkeydown="if(event.key === 'Enter') { modifyTag(<?= $course['id'] ?>, 'add', this.value); }">
                         </div>
                     </div>
 
-                    <div class="course-center w-full md:w-80 p-8 flex flex-col justify-center bg-slate-50/30">
-                        <div class="grid grid-cols-2 gap-6">
+                    <div class="course-center">
+                        <div class="grid grid-cols-2 gap-x-8 gap-y-2 w-full">
                             <div>
                                 <span class="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Views</span>
                                 <span class="block text-2xl font-bold text-slate-900"><?= number_format($course['views'] ?? 0) ?></span>
@@ -265,20 +311,20 @@ $courses = $stmt->fetchAll();
                                 <span class="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Content</span>
                                 <span class="block text-2xl font-bold text-slate-900"><?= $course['content_count'] ?></span>
                             </div>
-                            <div class="col-span-2 flex items-center gap-2 pt-2 border-t border-gray-100">
+                            <div class="col-span-2 flex items-center gap-2 pt-2 mt-2 border-t border-gray-200/50">
                                 <i data-lucide="clock" class="w-4 h-4 text-blue-500"></i>
                                 <span class="text-sm font-bold text-blue-600"><?= htmlspecialchars($course['duration'] ?? '0h 0m') ?></span>
-                                <span class="text-xs text-slate-400 font-bold uppercase ml-1">Total Duration</span>
+                                <span class="text-xs text-slate-400 font-bold uppercase ml-1">Duration</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="course-right w-full md:w-64 p-8 flex flex-col gap-3 justify-center items-center bg-white">
+                    <div class="course-right">
                         <button onclick="shareCourse(<?= $course['id'] ?>)" class="btn-share w-full py-3 rounded-xl flex items-center justify-center gap-2 transition-all">
-                            <i data-lucide="share-2" class="w-3 h-3"></i> Share Link
+                            <i data-lucide="share-2" class="w-3 h-3"></i> Share
                         </button>
                         <a href="manage_course.php?id=<?= $course['id'] ?>" class="btn-edit w-full py-3 rounded-xl flex items-center justify-center gap-2 transition-all">
-                            Edit Course <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                            Edit <i data-lucide="arrow-right" class="w-3 h-3"></i>
                         </a>
                     </div>
                 </div>
@@ -301,7 +347,7 @@ $courses = $stmt->fetchAll();
                     <label class="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Course Title</label>
                     <input type="text" name="title" placeholder="e.g. Advanced Python Patterns" class="search-input w-full text-lg mb-8" required>
                     <button type="submit" name="create_course" class="w-full bg-black text-white font-bold py-4 rounded-xl shadow-lg hover:bg-gray-800 transition-all flex items-center justify-center gap-2">
-                        Create Project <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                        Create Course <i data-lucide="arrow-right" class="w-4 h-4"></i>
                     </button>
                 </form>
             </div>
@@ -316,12 +362,17 @@ $courses = $stmt->fetchAll();
             const c = document.getElementById('courseContainer');
             const bL = document.getElementById('btnList');
             const bG = document.getElementById('btnGrid');
+            
             if (viewType === 'grid') {
-                c.classList.add('grid-view'); c.classList.remove('space-y-6');
+                // Switch to Grid
+                c.classList.remove('list-view', 'space-y-6');
+                c.classList.add('grid-view');
                 bG.classList.add('active'); bL.classList.remove('active');
                 localStorage.setItem('courseView', 'grid');
             } else {
-                c.classList.remove('grid-view'); c.classList.add('space-y-6');
+                // Switch to List
+                c.classList.remove('grid-view');
+                c.classList.add('list-view', 'space-y-6');
                 bL.classList.add('active'); bG.classList.remove('active');
                 localStorage.setItem('courseView', 'list');
             }

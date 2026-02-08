@@ -10,11 +10,26 @@ $user_id = $_SESSION['user_id'] ?? null;
 if (!$course_id) { header("Location: index.php"); exit; }
 
 // --- 1. HANDLE POST ACTIONS ---
+// --- 1. HANDLE POST ACTIONS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if(!$user_id) { header("Location: login.php"); exit; }
 
     // Enroll Action
     if (isset($_POST['join_now'])) {
+        
+        // --- NEW LOGIC: Check Price ---
+        $price_check = $pdo->prepare("SELECT price FROM courses WHERE id = ?");
+        $price_check->execute([$course_id]);
+        $c_price = $price_check->fetchColumn();
+
+        if ($c_price > 0) {
+            // It costs money! Redirect to Payment Page
+            header("Location: payment.php?course_id=" . $course_id);
+            exit;
+        }
+        // ------------------------------
+
+        // Standard Enrollment (Free Course)
         $check = $pdo->prepare("SELECT id FROM enrollments WHERE student_id = ? AND course_id = ?");
         $check->execute([$user_id, $course_id]);
         if (!$check->fetch()) {
@@ -24,6 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: student/course_player.php?course_id=" . $course_id);
         exit;
     }
+    
 
     // Add Review Action (PDF B4)
     if (isset($_POST['submit_review'])) {

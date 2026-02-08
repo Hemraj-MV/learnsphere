@@ -5,32 +5,25 @@ require '../includes/db.php';
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // --- STRICT SECURITY CHECK ---
-if (!isset($_SESSION['user_id'])) {
-    // Not logged in at all? Go to Admin Login
-    header("Location: ../admin_login.php");
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
+    header("Location: ../login.php");
     exit;
 }
-
-if ($_SESSION['role'] !== 'admin') {
-    // Logged in, but NOT an admin? Kick them to their own dashboard
-    if ($_SESSION['role'] === 'instructor') {
-        header("Location: ../instructor/dashboard.php");
-    } else {
-        header("Location: ../student/dashboard.php");
-    }
-    exit;
-}
-// -----------------------------
 
 $user_name = $_SESSION['name'];
+$current_admin_id = $_SESSION['user_id'];
 
-// 2. HANDLE ACTIONS (Ban User / Delete Course)
+// --- HANDLE ACTIONS ---
+
+// 1. Delete Course
 if (isset($_GET['delete_course'])) {
     $stmt = $pdo->prepare("DELETE FROM courses WHERE id = ?");
     $stmt->execute([$_GET['delete_course']]);
     header("Location: dashboard.php?msg=Course Deleted");
     exit;
 }
+
+// 2. Delete User
 if (isset($_GET['delete_user'])) {
     $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
     $stmt->execute([$_GET['delete_user']]);
@@ -38,15 +31,28 @@ if (isset($_GET['delete_user'])) {
     exit;
 }
 
-// 3. FETCH STATS
+// 3. Change User Role (New Feature)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_role'])) {
+    $target_user_id = $_POST['user_id'];
+    $new_role = $_POST['new_role'];
+    
+    // Prevent changing own role
+    if ($target_user_id != $current_admin_id) {
+        $stmt = $pdo->prepare("UPDATE users SET role = ? WHERE id = ?");
+        $stmt->execute([$new_role, $target_user_id]);
+    }
+    header("Location: dashboard.php?msg=Role Updated");
+    exit;
+}
+
+// --- FETCH STATS ---
 $total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
 $total_courses = $pdo->query("SELECT COUNT(*) FROM courses")->fetchColumn();
 $total_enrollments = $pdo->query("SELECT COUNT(*) FROM enrollments")->fetchColumn();
-// Calculate revenue from paid courses
 $total_revenue = $pdo->query("SELECT SUM(c.price) FROM courses c JOIN enrollments e ON c.id = e.course_id WHERE c.price > 0")->fetchColumn() ?: 0;
 
-// 4. FETCH DATA LISTS
-$users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC LIMIT 10")->fetchAll();
+// --- FETCH DATA LISTS ---
+$users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC LIMIT 20")->fetchAll();
 $courses = $pdo->query("SELECT c.*, u.name as instructor_name FROM courses c JOIN users u ON c.instructor_id = u.id ORDER BY c.created_at DESC LIMIT 10")->fetchAll();
 ?>
 
@@ -63,10 +69,9 @@ $courses = $pdo->query("SELECT c.*, u.name as instructor_name FROM courses c JOI
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #1e293b; }
         h1, h2, h3, .heading-font { font-family: 'Outfit', sans-serif; }
-        
         .stat-card { background: white; border: 1px solid #e2e8f0; padding: 24px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
         .data-table th { background: #f1f5f9; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; }
-        .data-table td { border-bottom: 1px solid #f8fafc; }
+        .data-table td { border-bottom: 1px solid #f8fafc; vertical-align: middle; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -127,33 +132,43 @@ $courses = $pdo->query("SELECT c.*, u.name as instructor_name FROM courses c JOI
             
             <div class="stat-card p-0 overflow-hidden">
                 <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
-                    <h3 class="font-bold text-lg text-slate-800">Recent Users</h3>
+                    <h3 class="font-bold text-lg text-slate-800">User Management</h3>
                     <span class="text-xs font-bold bg-slate-100 px-2 py-1 rounded text-slate-500"><?= count($users) ?> Shown</span>
                 </div>
-                <div class="overflow-x-auto">
+                <div class="overflow-visible h-[500px] overflow-y-auto">
                     <table class="table w-full data-table">
-                        <thead>
+                        <thead class="sticky top-0 z-10 shadow-sm">
                             <tr>
-                                <th>Name</th>
+                                <th>User Details</th>
                                 <th>Role</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach($users as $u): ?>
-                            <tr class="hover:bg-slate-50">
+                            <tr class="hover:bg-slate-50 transition">
                                 <td>
                                     <div class="font-bold text-slate-700"><?= htmlspecialchars($u['name']) ?></div>
                                     <div class="text-xs text-slate-400"><?= htmlspecialchars($u['email']) ?></div>
                                 </td>
                                 <td>
-                                    <span class="badge badge-sm <?= $u['role'] === 'admin' ? 'badge-error' : ($u['role'] === 'instructor' ? 'badge-primary' : 'badge-ghost') ?>">
-                                        <?= ucfirst($u['role']) ?>
-                                    </span>
+                                    <?php if($u['id'] == $current_admin_id): ?>
+                                        <span class="badge badge-error badge-sm font-bold text-white">Super Admin</span>
+                                    <?php else: ?>
+                                        <form method="POST" class="flex items-center">
+                                            <input type="hidden" name="update_role" value="1">
+                                            <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+                                            <select name="new_role" onchange="this.form.submit()" class="select select-bordered select-xs w-28 font-bold <?= $u['role'] == 'instructor' ? 'text-indigo-600 bg-indigo-50' : ($u['role'] == 'admin' ? 'text-red-600 bg-red-50' : 'text-slate-600') ?>">
+                                                <option value="learner" <?= $u['role'] == 'learner' ? 'selected' : '' ?>>Learner</option>
+                                                <option value="instructor" <?= $u['role'] == 'instructor' ? 'selected' : '' ?>>Instructor</option>
+                                                <option value="admin" <?= $u['role'] == 'admin' ? 'selected' : '' ?>>Admin</option>
+                                            </select>
+                                        </form>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
-                                    <?php if($u['role'] !== 'admin'): ?>
-                                        <a href="?delete_user=<?= $u['id'] ?>" onclick="return confirm('Delete this user? This cannot be undone.')" class="btn btn-xs btn-square btn-ghost text-red-500">
+                                    <?php if($u['id'] !== $current_admin_id): ?>
+                                        <a href="?delete_user=<?= $u['id'] ?>" onclick="return confirm('Delete this user? This cannot be undone.')" class="btn btn-xs btn-square btn-ghost text-red-500 hover:bg-red-50">
                                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                                         </a>
                                     <?php endif; ?>
@@ -170,9 +185,9 @@ $courses = $pdo->query("SELECT c.*, u.name as instructor_name FROM courses c JOI
                     <h3 class="font-bold text-lg text-slate-800">Recent Courses</h3>
                     <span class="text-xs font-bold bg-slate-100 px-2 py-1 rounded text-slate-500"><?= count($courses) ?> Shown</span>
                 </div>
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto h-[500px]">
                     <table class="table w-full data-table">
-                        <thead>
+                        <thead class="sticky top-0 z-10 shadow-sm">
                             <tr>
                                 <th>Course Title</th>
                                 <th>Instructor</th>
@@ -196,7 +211,7 @@ $courses = $pdo->query("SELECT c.*, u.name as instructor_name FROM courses c JOI
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <a href="?delete_course=<?= $c['id'] ?>" onclick="return confirm('Delete this course? All lessons will be lost.')" class="btn btn-xs btn-square btn-ghost text-red-500">
+                                    <a href="?delete_course=<?= $c['id'] ?>" onclick="return confirm('Delete this course? All lessons will be lost.')" class="btn btn-xs btn-square btn-ghost text-red-500 hover:bg-red-50">
                                         <i data-lucide="trash-2" class="w-4 h-4"></i>
                                     </a>
                                 </td>

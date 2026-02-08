@@ -13,7 +13,7 @@ $user_id = $_SESSION['user_id'];
 $user_name = $_SESSION['name'] ?? 'Learner';
 $search = $_GET['search'] ?? '';
 
-// Points Logic
+// --- 1. POINTS & BADGE LOGIC ---
 $pt_stmt = $pdo->prepare("SELECT COUNT(*) FROM lesson_progress WHERE user_id = ?");
 $pt_stmt->execute([$user_id]);
 $completed_count = $pt_stmt->fetchColumn();
@@ -26,8 +26,34 @@ elseif ($user_points >= 80) $user_badge = 'Specialist';
 elseif ($user_points >= 60) $user_badge = 'Achiever';
 elseif ($user_points >= 40) $user_badge = 'Explorer';
 
-// Fetch Courses
-$sql = "SELECT * FROM courses WHERE 1=1"; 
+// --- 2. FETCH ENROLLMENTS (MOVED TO TOP) ---
+// This must happen BEFORE fetching courses so we know which invitation-only courses to show.
+$enrolled_courses_map = [];
+try {
+    $enroll_stmt = $pdo->prepare("SELECT course_id, status FROM enrollments WHERE student_id = ?");
+    $enroll_stmt->execute([$user_id]);
+    while ($row = $enroll_stmt->fetch(PDO::FETCH_ASSOC)) {
+        $enrolled_courses_map[$row['course_id']] = $row['status'];
+    }
+} catch (PDOException $e) {
+    // Fallback or log error
+}
+
+// --- 3. FETCH COURSES (Modified for Invitation Logic) ---
+// Now $enrolled_courses_map is defined, so this works:
+$enrolled_ids = array_keys($enrolled_courses_map);
+
+// Create a safe string for SQL IN clause (e.g., "1,2,5") or "0" if empty
+$in_clause = empty($enrolled_ids) ? "0" : implode(',', $enrolled_ids);
+
+$sql = "SELECT * FROM courses 
+        WHERE is_published = 1 
+        AND (
+            access_rule IS NULL 
+            OR access_rule != 'invitation' 
+            OR id IN ($in_clause)
+        )";
+
 $params = [];
 if (!empty($search)) {
     $sql .= " AND (title LIKE ? OR description LIKE ?)";
@@ -35,35 +61,22 @@ if (!empty($search)) {
     $params[] = "%$search%";
 }
 $sql .= " ORDER BY created_at DESC";
+
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $all_courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Check Enrollment
-$enrolled_courses_map = [];
-try {
-    $enroll_stmt = $pdo->prepare("SELECT course_id, status FROM enrollments WHERE student_id = ?");
-    $enroll_stmt->execute([$user_id]);
-} catch (PDOException $e) {
-    // Fallback if column differs
-    $enroll_stmt = $pdo->prepare("SELECT course_id, status FROM enrollments WHERE user_id = ?");
-    $enroll_stmt->execute([$user_id]);
-}
-while ($row = $enroll_stmt->fetch(PDO::FETCH_ASSOC)) {
-    $enrolled_courses_map[$row['course_id']] = $row['status'];
-}
 
-// ... inside student/dashboard.php ...
-
+// --- 4. PREPARE DISPLAY DATA ---
 $display_courses = [];
 foreach ($all_courses as $course) {
     $course_id = $course['id'];
     
-    // CHANGE THIS LINE: Get the specific status ('completed', 'in_progress', or null)
+    // Get the specific status ('completed', 'in_progress', or null)
     $status = $enrolled_courses_map[$course_id] ?? null;
     
     $course['is_enrolled'] = ($status !== null);
-    $course['enrollment_status'] = $status; // <--- ADD THIS
+    $course['enrollment_status'] = $status;
     
     $course['tags'] = !empty($course['tags']) ? explode(',', $course['tags']) : ['General'];
     $display_courses[] = $course;
@@ -148,20 +161,17 @@ foreach ($all_courses as $course) {
                         <?php foreach ($display_courses as $course): ?>
                             <?php 
                                 $is_paid = ($course['price'] > 0);
-                                $is_draft = ($course['is_published'] == 0);
                             ?>
-                            <div class="premium-card rounded-2xl overflow-hidden relative group">
-                                <div class="relative h-48 overflow-hidden bg-slate-100">
+                            <div class="premium-card rounded-2xl overflow-hidden relative group flex flex-col h-full">
+                                <div class="relative h-48 overflow-hidden bg-slate-100 flex-shrink-0">
                                     <img src="../<?= htmlspecialchars($course['image'] ?: 'assets/default_course.jpg') ?>" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
                                     
-                                    <?php if ($is_draft): ?>
-                                        <div class="ribbon ribbon-draft">Draft</div>
-                                    <?php elseif ($is_paid && !$course['is_enrolled']): ?>
+                                    <?php if ($is_paid && !$course['is_enrolled']): ?>
                                         <div class="ribbon ribbon-paid">Paid</div>
                                     <?php endif; ?>
                                 </div>
                                 
-                                <div class="p-5 flex flex-col h-56">
+                                <div class="p-5 flex flex-col flex-1">
                                     <div class="flex flex-wrap gap-2 mb-3">
                                         <?php foreach ($course['tags'] as $tag): $tag = trim($tag); if(empty($tag)) continue; ?>
                                             <span class="px-2 py-1 text-[10px] font-bold uppercase bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100"><?= htmlspecialchars($tag) ?></span>
@@ -171,34 +181,34 @@ foreach ($all_courses as $course) {
                                     <h3 class="text-lg font-bold text-slate-800 mb-2 line-clamp-2 leading-tight"><?= htmlspecialchars($course['title']) ?></h3>
                                     
                                     <div class="mt-auto pt-4 border-t border-slate-50 flex items-center justify-between">
-    
-    <?php if ($course['is_enrolled']): ?>
-        
-        <?php if ($course['enrollment_status'] === 'completed'): ?>
-            <span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 flex items-center gap-1">
-                <i data-lucide="award" class="w-3 h-3"></i> Completed
-            </span>
-            <a href="certificate.php?course_id=<?= $course['id'] ?>" target="_blank" class="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none rounded-lg shadow-md">
-                Certificate
-            </a>
-            
-        <?php else: ?>
-            <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100 flex items-center gap-1">
-                <i data-lucide="loader" class="w-3 h-3"></i> In Progress
-            </span>
-            <a href="course_player.php?course_id=<?= $course['id'] ?>" class="btn btn-sm bg-indigo-600 hover:bg-indigo-700 text-white border-none rounded-lg shadow-md shadow-indigo-200">
-                Continue
-            </a>
-        <?php endif; ?>
+                                        
+                                        <?php if ($course['is_enrolled']): ?>
+                                            
+                                            <?php if ($course['enrollment_status'] === 'completed'): ?>
+                                                <span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 flex items-center gap-1">
+                                                    <i data-lucide="award" class="w-3 h-3"></i> Completed
+                                                </span>
+                                                <a href="certificate.php?course_id=<?= $course['id'] ?>" target="_blank" class="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none rounded-lg shadow-md">
+                                                    Certificate
+                                                </a>
+                                                
+                                            <?php else: ?>
+                                                <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100 flex items-center gap-1">
+                                                    <i data-lucide="loader" class="w-3 h-3"></i> In Progress
+                                                </span>
+                                                <a href="course_player.php?course_id=<?= $course['id'] ?>" class="btn btn-sm bg-indigo-600 hover:bg-indigo-700 text-white border-none rounded-lg shadow-md shadow-indigo-200">
+                                                    Continue
+                                                </a>
+                                            <?php endif; ?>
 
-    <?php else: ?>
-        <span class="text-slate-900 font-bold"><?= ($course['price'] > 0) ? '$'.number_format($course['price']) : 'Free' ?></span>
-        <a href="../course_details.php?id=<?= $course['id'] ?>" class="btn btn-sm btn-outline border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-lg">
-            Join
-        </a>
-    <?php endif; ?>
-    
-</div>
+                                        <?php else: ?>
+                                            <span class="text-slate-900 font-bold"><?= ($course['price'] > 0) ? '$'.number_format($course['price']) : 'Free' ?></span>
+                                            <a href="../course_details.php?id=<?= $course['id'] ?>" class="btn btn-sm btn-outline border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-lg">
+                                                Join
+                                            </a>
+                                        <?php endif; ?>
+                                        
+                                    </div>
                                 </div>
                             </div>
                         <?php endforeach; ?>

@@ -1,5 +1,5 @@
 <?php
-// student/course_player.php
+// student/course_player.php (FINAL FIXED VERSION)
 require '../includes/db.php';
 
 // 1. AUTHENTICATION
@@ -11,23 +11,8 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $course_id = $_GET['course_id'] ?? 0;
-// ... inside student/course_player.php ...
-
-$user_id = $_SESSION['user_id']; // (Existing line)
-$user_name = $_SESSION['name'] ?? 'User'; // (Existing line)
-
-// --- ADD THIS BLOCK: UPDATE START DATE ---
-// Check if this is the first time the user is accessing the course
-$check_start = $pdo->prepare("SELECT started_at FROM enrollments WHERE student_id = ? AND course_id = ?");
-$check_start->execute([$user_id, $course_id]);
-$enrollment = $check_start->fetch();
-
-if ($enrollment && $enrollment['started_at'] === null) {
-    // It's their first time! Stamp the date and set status to in_progress
-    $update_start = $pdo->prepare("UPDATE enrollments SET started_at = NOW(), status = 'in_progress' WHERE student_id = ? AND course_id = ?");
-    $update_start->execute([$user_id, $course_id]);
-}
-// ----------------------------------------
+$user_id = $_SESSION['user_id'];
+$user_name = $_SESSION['name'] ?? 'User';
 
 // 2. HANDLE REVIEW SUBMISSION
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_review'])) {
@@ -41,16 +26,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_review'])) {
     }
 }
 
-// 3. FETCH DATA
+// 3. FETCH DATA (STRICT FILTERING)
 $course_stmt = $pdo->prepare("SELECT * FROM courses WHERE id = ?");
 $course_stmt->execute([$course_id]);
 $course = $course_stmt->fetch();
 if (!$course) die("Course not found.");
 
+// Fetch Lessons (Only for THIS course)
 $lessons_stmt = $pdo->prepare("SELECT * FROM lessons WHERE course_id = ? ORDER BY position ASC");
 $lessons_stmt->execute([$course_id]);
 $lessons = $lessons_stmt->fetchAll();
 
+// Fetch Quizzes (Only for THIS course)
 $quizzes_stmt = $pdo->prepare("SELECT * FROM quizzes WHERE course_id = ?");
 $quizzes_stmt->execute([$course_id]);
 $quizzes = $quizzes_stmt->fetchAll();
@@ -90,7 +77,6 @@ if (isset($_GET['quiz_id'])) {
     foreach ($quizzes as $index => $q) {
         if ($q['id'] == $_GET['quiz_id']) {
             $current_item = $q;
-            // Logic for next item could be added here if quizzes were intermixed with lessons
             break;
         }
     }
@@ -98,13 +84,26 @@ if (isset($_GET['quiz_id'])) {
     $view_mode = 'player';
     foreach ($lessons as $index => $l) {
         if ($l['id'] == $_GET['lesson_id']) {
+            
+            // FIX: If user clicks a Quiz Lesson (file), Redirect to Quiz Mode
+            if (strtolower($l['type']) === 'quiz') {
+                // Find matching quiz ID
+                foreach($quizzes as $q) {
+                    if($q['lesson_id'] == $l['id']) {
+                        header("Location: course_player.php?course_id=$course_id&quiz_id=" . $q['id']);
+                        exit;
+                    }
+                }
+            }
+
             $current_item = $l;
             // Next Item Logic
             if (isset($lessons[$index + 1])) {
                 $next_link = "course_player.php?course_id=$course_id&lesson_id=" . $lessons[$index + 1]['id'];
                 $next_label = "Next Lesson";
             } elseif (count($quizzes) > 0) {
-                // If no more lessons, go to first quiz
+                // Check if there is a quiz that ISN'T the one we just redirected from
+                // Simplified: Just go to first quiz
                 $next_link = "course_player.php?course_id=$course_id&quiz_id=" . $quizzes[0]['id'];
                 $next_label = "Take Quiz";
             }
@@ -114,8 +113,14 @@ if (isset($_GET['quiz_id'])) {
 } else {
     // Default to first lesson if available
     if (count($lessons) > 0) {
-        $next_link = "course_player.php?course_id=$course_id&lesson_id=" . $lessons[0]['id'];
-        $next_label = "Start Learning";
+        // Find first NON-QUIZ lesson
+        foreach($lessons as $l) {
+            if(strtolower($l['type']) !== 'quiz') {
+                $next_link = "course_player.php?course_id=$course_id&lesson_id=" . $l['id'];
+                $next_label = "Start Learning";
+                break;
+            }
+        }
     }
 }
 
@@ -152,42 +157,25 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
     
     <style>
-        /* PREMIUM LIGHT THEME */
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #1e293b; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
-        h1, h2, h3, .heading-font { font-family: 'Outfit', sans-serif; letter-spacing: -0.02em; }
-
-        /* HEADER */
+        h1, h2, h3, .heading-font { font-family: 'Outfit', sans-serif; }
         .player-header { background: white; border-bottom: 1px solid #e2e8f0; height: 64px; flex-shrink: 0; z-index: 50; }
-        
-        /* SIDEBAR */
         .player-sidebar { width: 320px; background: white; border-right: 1px solid #e2e8f0; height: 100%; overflow-y: auto; display: flex; flex-direction: column; flex-shrink: 0; }
-        
         .lesson-row { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid #f8fafc; cursor: pointer; transition: 0.2s; }
         .lesson-row:hover { background: #f1f5f9; }
         .lesson-row.active { background: #eef2ff; border-right: 3px solid #6366f1; }
         .lesson-row.active .lesson-title { color: #4f46e5; font-weight: 700; }
-        
-        /* MAIN CONTENT */
         .player-canvas { flex: 1; background: #f8fafc; overflow-y: auto; position: relative; }
-        
-        /* VIDEO WRAPPER */
         .video-wrapper { width: 100%; aspect-ratio: 16/9; background: black; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        
-        /* CARDS */
         .content-card { background: white; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); padding: 32px; margin-bottom: 24px; }
-        
-        /* QUIZ UI */
         .quiz-option { border: 2px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 12px; }
         .quiz-option:hover { border-color: #6366f1; background: #f8fafc; }
         .quiz-option input:checked + span { color: #4f46e5; font-weight: 700; }
         .quiz-option:has(input:checked) { border-color: #6366f1; background: #eef2ff; }
-
-        /* FULLSCREEN MODE */
         body.fullscreen-mode .player-header, body.fullscreen-mode .player-sidebar { display: none !important; }
         body.fullscreen-mode .player-canvas { padding: 0 !important; background: black; }
         body.fullscreen-mode .video-wrapper { border-radius: 0; height: 100vh; width: 100vw; }
         body.fullscreen-mode .content-card { display: none; }
-        
         .exit-fs-btn { position: fixed; top: 20px; right: 20px; z-index: 100; display: none; }
         body.fullscreen-mode .exit-fs-btn { display: block; }
     </style>
@@ -233,9 +221,10 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
             </div>
             
             <div class="flex-1 overflow-y-auto">
-                <?php foreach($lessons as $idx => $l):
-                    if($l['type'] == 'quiz') continue; // <--- ADD THIS LINE to hide quizzes from this list 
-                    // FIX: Check if $current_item exists before accessing ['id']
+                <?php foreach($lessons as $idx => $l): 
+                    // FIX: HIDE QUIZZES FROM TOP LIST
+                    if(strtolower($l['type']) === 'quiz') continue;
+
                     $is_active = ($content_type == 'lesson' && !empty($current_item) && $current_item['id'] == $l['id']);
                     $is_complete = in_array($l['id'], $completed_lessons);
                 ?>
@@ -255,7 +244,6 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
                 <?php if(count($quizzes) > 0): ?>
                     <div class="px-5 py-3 bg-slate-50/50 border-y border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest mt-2">Quizzes</div>
                     <?php foreach($quizzes as $q): 
-                        // FIX: Check if $current_item exists here too
                         $is_active = ($content_type == 'quiz' && !empty($current_item) && $current_item['id'] == $q['id']);
                     ?>
                     <a href="?course_id=<?= $course_id ?>&quiz_id=<?= $q['id'] ?>" class="lesson-row <?= $is_active ? 'active' : '' ?>">
@@ -379,6 +367,21 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
                     </div>
                     <?php endif; ?>
 
+                    <?php if(!empty($current_item['attachment_url'])): ?>
+                    <div class="content-card flex items-center justify-between p-4 bg-slate-50 border border-slate-200">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center">
+                                <i data-lucide="paperclip" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <div class="font-bold text-slate-900 text-sm">Attached Resource</div>
+                                <div class="text-xs text-slate-500">Additional learning material</div>
+                            </div>
+                        </div>
+                        <a href="../<?= htmlspecialchars($current_item['attachment_url']) ?>" target="_blank" class="btn btn-sm btn-outline border-slate-300">Download</a>
+                    </div>
+                    <?php endif; ?>
+
                     <div class="flex justify-end pb-20">
                         <form method="POST" action="mark_complete.php">
                             <input type="hidden" name="course_id" value="<?= $course_id ?>">
@@ -391,7 +394,7 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
                     </div>
 
                 <?php elseif($content_type === 'quiz'): ?>
-                    <?php $started = isset($_GET['started']); $score = isset($_GET['score']) ? $_GET['score'] : null; ?>
+                    <?php $started = isset($_GET['started']); $score = isset($_GET['score']) ? $_GET['score'] : null; $points = isset($_GET['points']) ? $_GET['points'] : 0; ?>
                     
                     <div class="flex flex-col items-center justify-center h-full pb-20">
                         <?php if($score !== null): ?>
@@ -401,7 +404,16 @@ if ($view_mode === 'player' && $content_type === 'quiz' && $current_item) {
                                 </div>
                                 <h2 class="text-2xl font-bold text-slate-900 mb-2">Quiz Completed!</h2>
                                 <div class="text-5xl font-black text-indigo-600 my-4"><?= round(($score / $_GET['total']) * 100) ?>%</div>
-                                <p class="text-slate-500 font-bold mb-8">You scored <?= $score ?> out of <?= $_GET['total'] ?></p>
+                                <p class="text-slate-500 font-bold mb-2">You scored <?= $score ?> out of <?= $_GET['total'] ?></p>
+                                
+                                <?php if($points > 0): ?>
+                                    <div class="badge badge-lg badge-warning gap-2 font-bold p-4 mb-8">
+                                        <i data-lucide="zap" class="w-4 h-4"></i> +<?= $points ?> Points Earned!
+                                    </div>
+                                <?php else: ?>
+                                    <div class="text-xs text-slate-400 mb-8">No points earned on this attempt.</div>
+                                <?php endif; ?>
+
                                 <a href="dashboard.php" class="btn btn-outline border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 w-full rounded-xl">Return to Dashboard</a>
                             </div>
 
