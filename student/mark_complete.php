@@ -19,26 +19,49 @@ if (!$lesson_id || !$course_id) {
     exit;
 }
 
-// 1. Mark Lesson as Complete
+// 1. MARK LESSON AS COMPLETE
+// Check if already completed to avoid duplicates
 $check = $pdo->prepare("SELECT id FROM lesson_progress WHERE user_id = ? AND lesson_id = ?");
 $check->execute([$user_id, $lesson_id]);
 
 if (!$check->fetch()) {
-    try {
-        $stmt = $pdo->prepare("INSERT INTO lesson_progress (user_id, lesson_id) VALUES (?, ?)");
-        $stmt->execute([$user_id, $lesson_id]);
-    } catch (PDOException $e) {
-        // Ignore duplicate errors
-    }
+    $stmt = $pdo->prepare("INSERT INTO lesson_progress (user_id, lesson_id) VALUES (?, ?)");
+    $stmt->execute([$user_id, $lesson_id]);
 }
 
-// 2. Navigation Logic
+// 2. CHECK COURSE COMPLETION (The Missing Logic)
+// Count total lessons
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM lessons WHERE course_id = ?");
+$stmt->execute([$course_id]);
+$total_lessons = $stmt->fetchColumn();
+
+// Count completed lessons for this course
+$stmt = $pdo->prepare("SELECT COUNT(DISTINCT l.id) FROM lessons l 
+                       JOIN lesson_progress lp ON l.id = lp.lesson_id 
+                       WHERE l.course_id = ? AND lp.user_id = ?");
+$stmt->execute([$course_id, $user_id]);
+$completed_count = $stmt->fetchColumn();
+
+// Calculate Progress %
+$new_progress = ($total_lessons > 0) ? round(($completed_count / $total_lessons) * 100) : 0;
+
+// Update Enrollment Table
+if ($completed_count >= $total_lessons) {
+    // COURSE COMPLETED!
+    $update = $pdo->prepare("UPDATE enrollments SET progress = 100, status = 'completed', completed_at = NOW() WHERE student_id = ? AND course_id = ?");
+    $update->execute([$user_id, $course_id]);
+} else {
+    // JUST UPDATE PROGRESS
+    $update = $pdo->prepare("UPDATE enrollments SET progress = ?, status = 'in_progress' WHERE student_id = ? AND course_id = ?");
+    $update->execute([$new_progress, $user_id, $course_id]);
+}
+
+// 3. NAVIGATION LOGIC
 if (!empty($redirect_url)) {
-    // If the player sent a specific next step (like quiz_id=2), go there.
     header("Location: " . $redirect_url);
 } else {
-    // Fallback if no link provided
-    $next_lesson_stmt = $pdo->prepare("SELECT id FROM lessons WHERE course_id = ? AND id > ? ORDER BY id ASC LIMIT 1");
+    // Auto-find next lesson
+    $next_lesson_stmt = $pdo->prepare("SELECT id FROM lessons WHERE course_id = ? AND position > (SELECT position FROM lessons WHERE id = ?) ORDER BY position ASC LIMIT 1");
     $next_lesson_stmt->execute([$course_id, $lesson_id]);
     $next_lesson = $next_lesson_stmt->fetch();
 
@@ -53,6 +76,7 @@ if (!empty($redirect_url)) {
         if ($next_quiz) {
             header("Location: course_player.php?course_id=$course_id&quiz_id=" . $next_quiz['id']);
         } else {
+            // Course is fully done, go to dashboard or certificate
             header("Location: dashboard.php?msg=course_completed");
         }
     }

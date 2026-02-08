@@ -171,7 +171,7 @@ $courses = $stmt->fetchAll();
                     </div>
                 <?php else: ?>
                     <?php foreach($courses as $c): ?>
-                        <a href="login.php?redirect=course_<?= $c['id'] ?>" class="course-card group block h-full flex flex-col">
+                        <a href="course_details.php?id=<?= $c['id'] ?>" class="course-card group block h-full flex flex-col">
                             <div class="relative h-56 overflow-hidden">
                                 <img src="<?= htmlspecialchars($c['image'] ?: 'assets/default_course.jpg') ?>" class="w-full h-full object-cover transition duration-700 group-hover:scale-105">
                                 <div class="absolute top-3 right-3 bg-white/90 backdrop-blur px-3 py-1 rounded-lg text-xs font-bold text-slate-900 shadow-sm border border-white/50">

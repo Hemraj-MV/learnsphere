@@ -170,7 +170,7 @@ foreach ($all_courses as $course) {
                                             <a href="course_player.php?course_id=<?= $course['id'] ?>" class="btn btn-sm bg-indigo-600 hover:bg-indigo-700 text-white border-none rounded-lg shadow-md shadow-indigo-200">Continue</a>
                                         <?php else: ?>
                                             <span class="text-slate-900 font-bold"><?= $is_paid ? '$'.number_format($course['price']) : 'Free' ?></span>
-                                            <a href="enroll.php?id=<?= $course['id'] ?>" class="btn btn-sm btn-outline border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-lg">Join</a>
+                                            <a href="../course_details.php?id=<?= $course['id'] ?>" class="btn btn-sm btn-outline border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-lg">Join</a>
                                         <?php endif; ?>
                                     </div>
                                 </div>
